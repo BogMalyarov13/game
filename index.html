@@ -1,1019 +1,239 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Лунтик с автоматом – охота</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { overflow: hidden; background: #2a4a3a; font-family: Arial, sans-serif; }
-        canvas { display: block; }
-        #ui {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 10;
-            color: #fff;
-        }
-        #crosshair {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 28px;
-            color: rgba(255,255,255,0.8);
-            text-shadow: 0 0 5px #000;
-        }
-        #stats {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            background: rgba(0,0,0,0.4);
-            padding: 6px 14px;
-            border-radius: 12px;
-            font-size: 18px;
-        }
-        #hint {
-            position: absolute;
-            bottom: 100px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.5);
-            padding: 6px 18px;
-            border-radius: 20px;
-            font-size: 16px;
-            opacity: 0;
-            transition: opacity 0.3s;
-            pointer-events: none;
-        }
-        #hint.show { opacity: 1; }
-        #controls {
-            position: absolute;
-            bottom: 30px;
-            right: 30px;
-            background: rgba(0,0,0,0.4);
-            padding: 8px 14px;
-            border-radius: 10px;
-            font-size: 14px;
-            backdrop-filter: blur(2px);
-            border: 1px solid #666;
-            pointer-events: none;
-            text-align: right;
-        }
-        #controls kbd {
-            background: #222;
-            padding: 2px 8px;
-            border-radius: 4px;
-            border: 1px solid #555;
-            margin: 0 2px;
-        }
-        #start-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.6);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 30;
-            pointer-events: auto;
-            cursor: pointer;
-            color: #fff;
-            text-align: center;
-        }
-        #start-overlay h1 {
-            font-size: 48px;
-            color: #7cb86c;
-            text-shadow: 0 0 20px #3a6a3a;
-            margin-bottom: 10px;
-        }
-        #start-overlay p {
-            font-size: 20px;
-            opacity: 0.9;
-        }
-        #start-overlay small {
-            font-size: 16px;
-            opacity: 0.7;
-            margin-top: 20px;
-            display: block;
-        }
-        #start-overlay.hidden { display: none; pointer-events: none; }
-        @media (max-width: 700px) {
-            #controls { font-size: 12px; padding: 4px 10px; }
-            #stats { font-size: 14px; padding: 4px 10px; }
-            #start-overlay h1 { font-size: 32px; }
-        }
-    </style>
-</head>
-<body>
-    <div id="ui">
-        <div id="crosshair">✚</div>
-        <div id="stats">🦌 Убито: <span id="killCount">0</span></div>
-        <div id="hint">Нажмите <kbd>E</kbd>, чтобы войти/выйти</div>
-        <div id="controls">
-            <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> – ходьба &nbsp; <kbd>Пробел</kbd> – прыжок<br>
-            <kbd>E</kbd> – стрельба / вход-выход &nbsp; <kbd>ЛКМ + мышь</kbd> – осмотр
-        </div>
-    </div>
-
-    <div id="start-overlay">
-        <h1>🔫 Лунтик с автоматом</h1>
-        <p>Охоться на оленей (3 выстрела)</p>
-        <small>Кликни сюда, чтобы начать</small>
-    </div>
-
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
-            }
-        }
-    </script>
-
-    <script type="module">
-        import * as THREE from 'three';
-
-        // ---------- Сцена ----------
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x8ab8d4);
-        scene.fog = new THREE.Fog(0x8ab8d4, 60, 100);
-
-        const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 120);
-        camera.position.set(0, 1.6, 20);
-
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.2;
-        document.body.prepend(renderer.domElement);
-
-        // ---------- Освещение ----------
-        scene.add(new THREE.AmbientLight(0x8090b0, 0.7));
-        const sun = new THREE.DirectionalLight(0xffeedd, 1.2);
-        sun.position.set(40, 50, 30);
-        sun.castShadow = true;
-        sun.shadow.mapSize.width = 2048;
-        sun.shadow.mapSize.height = 2048;
-        sun.shadow.camera.near = 0.5;
-        sun.shadow.camera.far = 100;
-        sun.shadow.camera.left = -50;
-        sun.shadow.camera.right = 50;
-        sun.shadow.camera.top = 50;
-        sun.shadow.camera.bottom = -50;
-        scene.add(sun);
-        const fill = new THREE.DirectionalLight(0x88aaff, 0.4);
-        fill.position.set(-30, 20, -30);
-        scene.add(fill);
-
-        // ---------- Земля ----------
-        const ground = new THREE.Mesh(
-            new THREE.PlaneGeometry(150, 150),
-            new THREE.MeshStandardMaterial({ color: 0x4a8a4a, roughness: 0.7 })
-        );
-        ground.rotation.x = -Math.PI/2;
-        ground.receiveShadow = true;
-        scene.add(ground);
-
-        // ---------- Деревья ----------
-        function createTree(x, z) {
-            const g = new THREE.Group();
-            const h = 1.8 + Math.random() * 3.5;
-            const trunk = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.25, 0.4, h, 5),
-                new THREE.MeshStandardMaterial({ color: 0x7a5a3a, roughness: 0.8 })
-            );
-            trunk.position.y = h/2;
-            trunk.castShadow = true;
-            trunk.receiveShadow = true;
-            g.add(trunk);
-            const ch = 1.8 + Math.random() * 2.8;
-            const cr = 0.8 + Math.random() * 2.0;
-            const crown = new THREE.Mesh(
-                new THREE.ConeGeometry(cr, ch, 6),
-                new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.25 + Math.random()*0.1, 0.6, 0.35 + Math.random()*0.25), roughness: 0.6 })
-            );
-            crown.position.y = h + ch/2 - 0.3;
-            crown.castShadow = true;
-            crown.receiveShadow = true;
-            g.add(crown);
-            g.position.set(x, 0, z);
-            return g;
-        }
-
-        for (let i=0; i<300; i++) {
-            const angle = Math.random() * Math.PI*2;
-            const radius = 8 + Math.random() * 55;
-            const x = Math.cos(angle) * radius;
-            const z = Math.sin(angle) * radius;
-            if (Math.abs(x) < 22 && Math.abs(z) < 22) continue;
-            scene.add(createTree(x, z));
-        }
-
-        // ---------- Кусты ----------
-        for (let i=0; i<80; i++) {
-            const angle = Math.random() * Math.PI*2;
-            const radius = 6 + Math.random() * 50;
-            const x = Math.cos(angle) * radius;
-            const z = Math.sin(angle) * radius;
-            if (Math.abs(x) < 22 && Math.abs(z) < 22) continue;
-            const bush = new THREE.Mesh(
-                new THREE.SphereGeometry(0.3+Math.random()*0.6, 5),
-                new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.3, 0.5, 0.25+Math.random()*0.15) })
-            );
-            bush.position.set(x, 0.2, z);
-            bush.castShadow = true;
-            bush.receiveShadow = true;
-            scene.add(bush);
-        }
-
-        // ---------- Пруд ----------
-        const pondRadius = 18;
-        const water = new THREE.Mesh(
-            new THREE.CircleGeometry(pondRadius, 48),
-            new THREE.MeshStandardMaterial({
-                color: 0x2a8aaa,
-                transparent: true,
-                opacity: 0.6,
-                roughness: 0.1,
-                metalness: 0.4,
-                emissive: 0x1a4a6a,
-                emissiveIntensity: 0.05,
-                side: THREE.DoubleSide,
-            })
-        );
-        water.rotation.x = -Math.PI/2;
-        water.position.y = 0.05;
-        water.receiveShadow = true;
-        scene.add(water);
-
-        // Блики
-        for (let i=0; i<50; i++) {
-            const angle = Math.random() * Math.PI*2;
-            const r = Math.random() * (pondRadius - 2);
-            const x = Math.cos(angle) * r;
-            const z = Math.sin(angle) * r;
-            const glitter = new THREE.Mesh(
-                new THREE.CircleGeometry(0.2 + Math.random()*0.5, 6),
-                new THREE.MeshBasicMaterial({ color: 0x88ddff, transparent: true, opacity: 0.1 + Math.random()*0.15 })
-            );
-            glitter.rotation.x = -Math.PI/2;
-            glitter.position.set(x, 0.08, z);
-            scene.add(glitter);
-        }
-
-        // Камыши
-        function createReed(x, z) {
-            const group = new THREE.Group();
-            const height = 0.6 + Math.random() * 1.0;
-            const stem = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.02, 0.03, height, 4),
-                new THREE.MeshStandardMaterial({ color: 0x3a7a3a })
-            );
-            stem.position.y = height/2;
-            stem.castShadow = true;
-            group.add(stem);
-            const head = new THREE.Mesh(
-                new THREE.ConeGeometry(0.05, 0.12, 4),
-                new THREE.MeshStandardMaterial({ color: 0x6a4a2a })
-            );
-            head.position.y = height + 0.06;
-            group.add(head);
-            group.position.set(x, 0, z);
-            return group;
-        }
-        for (let i=0; i<140; i++) {
-            const angle = Math.random() * Math.PI*2;
-            const r = pondRadius - 0.2 + Math.random() * 0.8;
-            const x = Math.cos(angle) * r;
-            const z = Math.sin(angle) * r;
-            const reed = createReed(x, z);
-            reed.rotation.y = Math.random() * Math.PI*2;
-            scene.add(reed);
-        }
-
-        // ---------- Подводный мир ----------
-        function createAlgae(x, z) {
-            const g = new THREE.Group();
-            const count = 3 + Math.floor(Math.random() * 5);
-            for (let i=0; i<count; i++) {
-                const height = 0.5 + Math.random() * 1.5;
-                const stem = new THREE.Mesh(
-                    new THREE.CylinderGeometry(0.02, 0.04, height, 4),
-                    new THREE.MeshStandardMaterial({ color: 0x2a7a2a, roughness: 0.7 })
-                );
-                const angle = Math.random() * Math.PI*2;
-                const rad = 0.1 + Math.random() * 0.3;
-                stem.position.set(Math.cos(angle)*rad, height/2 - 0.5, Math.sin(angle)*rad);
-                stem.rotation.z = (Math.random() - 0.5) * 0.3;
-                stem.rotation.x = (Math.random() - 0.5) * 0.3;
-                stem.castShadow = true;
-                g.add(stem);
-                for (let j=0; j<3; j++) {
-                    const leaf = new THREE.Mesh(
-                        new THREE.PlaneGeometry(0.05, 0.1),
-                        new THREE.MeshStandardMaterial({ color: 0x3a9a3a, side: THREE.DoubleSide })
-                    );
-                    leaf.position.set(Math.cos(angle+1.2*j)*rad*0.8, height/2 - 0.5 + (j*0.3), Math.sin(angle+1.2*j)*rad*0.8);
-                    leaf.rotation.y = angle + 1.2*j;
-                    leaf.rotation.x = 0.5;
-                    g.add(leaf);
-                }
-            }
-            g.position.set(x, -0.5, z);
-            return g;
-        }
-        for (let i=0; i<60; i++) {
-            const angle = Math.random() * Math.PI*2;
-            const r = Math.random() * (pondRadius - 1);
-            const x = Math.cos(angle) * r;
-            const z = Math.sin(angle) * r;
-            scene.add(createAlgae(x, z));
-        }
-
-        // Камни
-        for (let i=0; i<30; i++) {
-            const angle = Math.random() * Math.PI*2;
-            const r = Math.random() * (pondRadius - 1);
-            const x = Math.cos(angle) * r;
-            const z = Math.sin(angle) * r;
-            const stone = new THREE.Mesh(
-                new THREE.DodecahedronGeometry(0.1 + Math.random()*0.25),
-                new THREE.MeshStandardMaterial({ color: 0x6a6a6a, roughness: 0.8 })
-            );
-            stone.position.set(x, -0.3, z);
-            stone.rotation.set(Math.random(), Math.random(), Math.random());
-            stone.castShadow = true;
-            stone.receiveShadow = true;
-            scene.add(stone);
-        }
-
-        // ---------- Рыбки ----------
-        const fishGroup = new THREE.Group();
-        scene.add(fishGroup);
-        const fishes = [];
-        function createFish() {
-            const g = new THREE.Group();
-            const body = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.08, 0.08, 0.3, 5),
-                new THREE.MeshStandardMaterial({ color: 0xffaa44, roughness: 0.3 })
-            );
-            body.rotation.x = Math.PI/2;
-            body.position.z = 0.05;
-            body.castShadow = true;
-            g.add(body);
-            const tail = new THREE.Mesh(
-                new THREE.ConeGeometry(0.06, 0.12, 4),
-                new THREE.MeshStandardMaterial({ color: 0xff8844 })
-            );
-            tail.position.z = -0.2;
-            tail.rotation.x = 0.2;
-            g.add(tail);
-            const eye = new THREE.Mesh(
-                new THREE.SphereGeometry(0.02, 4),
-                new THREE.MeshStandardMaterial({ color: 0x000000 })
-            );
-            eye.position.set(0.04, 0.03, 0.12);
-            g.add(eye);
-            const eye2 = eye.clone();
-            eye2.position.set(-0.04, 0.03, 0.12);
-            g.add(eye2);
-            g.userData = { angle: Math.random()*Math.PI*2, speed: 0.3+Math.random()*0.5, radius: 0.5+Math.random()*2, phase: Math.random()*Math.PI*2 };
-            const a = Math.random()*Math.PI*2;
-            const r = Math.random()*(pondRadius-1);
-            g.position.set(Math.cos(a)*r, -0.2+(Math.random()-0.5)*0.6, Math.sin(a)*r);
-            g.rotation.y = Math.random()*Math.PI*2;
-            fishGroup.add(g);
-            return g;
-        }
-        for (let i=0; i<15; i++) fishes.push(createFish());
-
-        // ---------- Дом ----------
-        const houseGroup = new THREE.Group();
-        houseGroup.position.set(30, 0, 30);
-        scene.add(houseGroup);
-
-        const wallMat = new THREE.MeshStandardMaterial({ color: 0xd4b48c, roughness: 0.8 });
-        const wallGeo = new THREE.BoxGeometry(5, 3, 5);
-        const walls = new THREE.Mesh(wallGeo, wallMat);
-        walls.position.y = 1.5;
-        walls.castShadow = true;
-        walls.receiveShadow = true;
-        houseGroup.add(walls);
-
-        const roofMat = new THREE.MeshStandardMaterial({ color: 0x8b3a3a, roughness: 0.7 });
-        const roofGeo = new THREE.ConeGeometry(3.8, 1.5, 4);
-        const roof = new THREE.Mesh(roofGeo, roofMat);
-        roof.position.y = 3.0 + 0.75;
-        roof.rotation.y = Math.PI/4;
-        roof.castShadow = true;
-        roof.receiveShadow = true;
-        houseGroup.add(roof);
-
-        const doorMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2a });
-        const door = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.8, 0.1), doorMat);
-        door.position.set(0, 0.9, 2.51);
-        door.castShadow = true;
-        houseGroup.add(door);
-        const handleMat = new THREE.MeshStandardMaterial({ color: 0xffaa00 });
-        const handle = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6), handleMat);
-        handle.position.set(0.3, 0.9, 2.56);
-        houseGroup.add(handle);
-
-        const windowMat = new THREE.MeshStandardMaterial({ color: 0x88ccff, emissive: 0x224466, emissiveIntensity: 0.1 });
-        const win1 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.05), windowMat);
-        win1.position.set(1.2, 1.8, 2.51);
-        houseGroup.add(win1);
-        const win2 = win1.clone();
-        win2.position.set(-1.2, 1.8, 2.51);
-        houseGroup.add(win2);
-        const win3 = win1.clone();
-        win3.position.set(2.51, 1.8, 1.2);
-        win3.rotation.y = Math.PI/2;
-        houseGroup.add(win3);
-        const win4 = win1.clone();
-        win4.position.set(-2.51, 1.8, 1.2);
-        win4.rotation.y = Math.PI/2;
-        houseGroup.add(win4);
-
-        // Интерьер
-        const interiorGroup = new THREE.Group();
-        interiorGroup.position.set(30, 0, 30);
-        const floorMat = new THREE.MeshStandardMaterial({ color: 0x8a6a4a });
-        const floor = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 4.6), floorMat);
-        floor.rotation.x = -Math.PI/2;
-        floor.position.y = 0.01;
-        floor.receiveShadow = true;
-        interiorGroup.add(floor);
-        const tableMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2a });
-        const tableTop = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 0.8), tableMat);
-        tableTop.position.set(0, 0.6, 0.5);
-        tableTop.castShadow = true;
-        tableTop.receiveShadow = true;
-        interiorGroup.add(tableTop);
-        for (let i=-1; i<=1; i+=2) {
-            for (let j=-1; j<=1; j+=2) {
-                const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5, 4), tableMat);
-                leg.position.set(i*0.5, 0.25, 0.5 + j*0.3);
-                leg.castShadow = true;
-                interiorGroup.add(leg);
-            }
-        }
-        const bedMat = new THREE.MeshStandardMaterial({ color: 0xcc8844 });
-        const bed = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.3, 0.8), bedMat);
-        bed.position.set(-0.5, 0.15, -0.8);
-        bed.castShadow = true;
-        bed.receiveShadow = true;
-        interiorGroup.add(bed);
-        const pillowMat = new THREE.MeshStandardMaterial({ color: 0xdddddd });
-        const pillow = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.2), pillowMat);
-        pillow.position.set(-0.7, 0.4, -0.9);
-        interiorGroup.add(pillow);
-        const chairMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2a });
-        const chair = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 0.4), chairMat);
-        chair.position.set(0.8, 0.4, 0.8);
-        chair.castShadow = true;
-        chair.receiveShadow = true;
-        interiorGroup.add(chair);
-        for (let i=-1; i<=1; i+=2) {
-            for (let j=-1; j<=1; j+=2) {
-                const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.35, 4), chairMat);
-                leg.position.set(0.8 + i*0.15, 0.18, 0.8 + j*0.15);
-                interiorGroup.add(leg);
-            }
-        }
-        const back = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.04), chairMat);
-        back.position.set(0.8, 0.65, 1.0);
-        interiorGroup.add(back);
-
-        scene.add(interiorGroup);
-        interiorGroup.visible = false;
-
-        let insideHouse = false;
-
-        // ---------- Автомат ----------
-        const weaponGroup = new THREE.Group();
-        camera.add(weaponGroup);
-
-        const barrelMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.5, metalness: 0.8 });
-        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 0.6, 6), barrelMat);
-        barrel.rotation.x = Math.PI/2;
-        barrel.position.set(0.2, -0.1, -0.4);
-        weaponGroup.add(barrel);
-
-        const stockMat = new THREE.MeshStandardMaterial({ color: 0x5a3a1a, roughness: 0.9 });
-        const stock = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.35), stockMat);
-        stock.position.set(0.2, -0.1, -0.85);
-        weaponGroup.add(stock);
-
-        const handguard = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.3), barrelMat);
-        handguard.position.set(0.2, 0.0, -0.5);
-        weaponGroup.add(handguard);
-
-        const magMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
-        const mag = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.18, 0.12), magMat);
-        mag.position.set(0.2, -0.22, -0.55);
-        weaponGroup.add(mag);
-
-        const gripMat = new THREE.MeshStandardMaterial({ color: 0x4a2a1a });
-        const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 0.2, 6), gripMat);
-        grip.position.set(0.2, -0.22, -0.65);
-        grip.rotation.x = 0.3;
-        weaponGroup.add(grip);
-
-        const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.08, 6), barrelMat);
-        muzzle.rotation.x = Math.PI/2;
-        muzzle.position.set(0.2, -0.1, -0.12);
-        weaponGroup.add(muzzle);
-
-        const sight = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.04, 0.02), new THREE.MeshStandardMaterial({ color: 0x111111 }));
-        sight.position.set(0.2, 0.06, -0.35);
-        weaponGroup.add(sight);
-
-        // Вспышка
-        const flashMat = new THREE.SpriteMaterial({
-            map: (() => {
-                const canvas = document.createElement('canvas');
-                canvas.width = 32;
-                canvas.height = 32;
-                const ctx = canvas.getContext('2d');
-                const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-                gradient.addColorStop(0, 'rgba(255,255,200,1)');
-                gradient.addColorStop(0.3, 'rgba(255,200,100,0.8)');
-                gradient.addColorStop(1, 'rgba(255,100,0,0)');
-                ctx.fillStyle = gradient;
-                ctx.fillRect(0, 0, 32, 32);
-                return new THREE.CanvasTexture(canvas);
-            })(),
-            transparent: true,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-        });
-        const flash = new THREE.Sprite(flashMat);
-        flash.position.set(0.2, -0.1, -0.1);
-        flash.scale.set(0.3, 0.3, 1);
-        flash.visible = false;
-        weaponGroup.add(flash);
-
-        // Эффект крови
-        const bloodTexture = (() => {
-            const canvas = document.createElement('canvas');
-            canvas.width = 64;
-            canvas.height = 64;
-            const ctx = canvas.getContext('2d');
-            const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-            gradient.addColorStop(0, 'rgba(200,0,0,0.8)');
-            gradient.addColorStop(0.3, 'rgba(150,0,0,0.6)');
-            gradient.addColorStop(1, 'rgba(100,0,0,0)');
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, 64, 64);
-            return new THREE.CanvasTexture(canvas);
-        })();
-
-        function createBlood(position) {
-            const sprite = new THREE.Sprite(
-                new THREE.SpriteMaterial({ map: bloodTexture, transparent: true, depthWrite: false, blending: THREE.NormalBlending })
-            );
-            sprite.position.copy(position);
-            sprite.position.y = 0.1;
-            sprite.scale.set(0.8, 0.8, 1);
-            scene.add(sprite);
-            setTimeout(() => scene.remove(sprite), 1500);
-        }
-
-        // ---------- Животные ----------
-        const animalGroup = new THREE.Group();
-        scene.add(animalGroup);
-        let aliveAnimals = [];
-
-        function createAnimal(x, z) {
-            const g = new THREE.Group();
-            const body = new THREE.Mesh(
-                new THREE.SphereGeometry(0.5, 6, 6),
-                new THREE.MeshStandardMaterial({ color: 0x8a6a4a, roughness: 0.8 })
-            );
-            body.scale.set(1.2, 0.8, 0.8);
-            body.position.y = 0.4;
-            body.castShadow = true;
-            body.receiveShadow = true;
-            g.add(body);
-            const head = new THREE.Mesh(
-                new THREE.SphereGeometry(0.3, 6),
-                new THREE.MeshStandardMaterial({ color: 0x8a6a4a })
-            );
-            head.position.set(0.6, 0.7, 0);
-            head.castShadow = true;
-            head.receiveShadow = true;
-            g.add(head);
-            const hornMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2a });
-            for (let side = -1; side <= 1; side+=2) {
-                const horn = new THREE.Mesh(
-                    new THREE.CylinderGeometry(0.03, 0.06, 0.4, 4),
-                    hornMat
-                );
-                horn.position.set(0.6 + side*0.2, 1.0, 0);
-                horn.rotation.z = side * 0.3;
-                horn.rotation.x = -0.2;
-                horn.castShadow = true;
-                g.add(horn);
-                const horn2 = new THREE.Mesh(
-                    new THREE.CylinderGeometry(0.02, 0.04, 0.3, 4),
-                    hornMat
-                );
-                horn2.position.set(0.6 + side*0.35, 1.15, 0);
-                horn2.rotation.z = side * 0.5;
-                horn2.rotation.x = 0.2;
-                horn2.castShadow = true;
-                g.add(horn2);
-            }
-            const legMat = new THREE.MeshStandardMaterial({ color: 0x5a3a2a });
-            for (let i = -1; i <= 1; i+=2) {
-                for (let j = -1; j <= 1; j+=2) {
-                    const leg = new THREE.Mesh(
-                        new THREE.CylinderGeometry(0.05, 0.05, 0.5, 4),
-                        legMat
-                    );
-                    leg.position.set(i*0.3, 0.15, j*0.25);
-                    leg.castShadow = true;
-                    leg.receiveShadow = true;
-                    g.add(leg);
-                }
-            }
-            // HP бар
-            const hpBarGroup = new THREE.Group();
-            hpBarGroup.position.set(0, 1.3, 0);
-            const bg = new THREE.Mesh(
-                new THREE.PlaneGeometry(0.6, 0.08),
-                new THREE.MeshBasicMaterial({ color: 0x333333 })
-            );
-            bg.position.z = -0.01;
-            hpBarGroup.add(bg);
-            const fill = new THREE.Mesh(
-                new THREE.PlaneGeometry(0.56, 0.06),
-                new THREE.MeshBasicMaterial({ color: 0x00ff00 })
-            );
-            fill.position.z = 0.01;
-            fill.position.x = 0;
-            hpBarGroup.add(fill);
-            g.add(hpBarGroup);
-
-            g.position.set(x, 0, z);
-            g.userData = {
-                state: 'idle',
-                timer: 0,
-                speed: 0.5 + Math.random() * 0.5,
-                hp: 3,
-                maxHp: 3,
-                angle: Math.random() * Math.PI*2,
-                hpBar: hpBarGroup,
-                fill: fill,
-                dead: false,
-                meshes: []
-            };
-            g.traverse((child) => {
-                if (child.isMesh) g.userData.meshes.push(child);
-            });
-            animalGroup.add(g);
-            return g;
-        }
-
-        for (let i=0; i<10; i++) {
-            const angle = Math.random() * Math.PI*2;
-            const radius = 6 + Math.random() * 40;
-            const x = Math.cos(angle) * radius;
-            const z = Math.sin(angle) * radius;
-            if (Math.abs(x) < 22 && Math.abs(z) < 22) continue;
-            if (Math.abs(x-30) < 5 && Math.abs(z-30) < 5) continue;
-            const animal = createAnimal(x, z);
-            aliveAnimals.push(animal);
-        }
-
-        // ---------- Управление ----------
-        let gameActive = false;
-        let isMouseDown = false;
-        let prevMouse = { x: 0, y: 0 };
-        let killCount = 0;
-        const killDisplay = document.getElementById('killCount');
-
-        const keys = {};
-        document.addEventListener('keydown', (e) => {
-            keys[e.code] = true;
-            if (e.code === 'Space') e.preventDefault();
-            if (e.code === 'KeyE') {
-                if (gameActive) {
-                    handleHouseInteraction();
-                    if (!insideHouse) performShot();
-                }
-            }
-        });
-        document.addEventListener('keyup', (e) => {
-            keys[e.code] = false;
-        });
-
-        renderer.domElement.addEventListener('mousedown', (e) => {
-            if (e.button === 0) {
-                isMouseDown = true;
-                prevMouse.x = e.clientX;
-                prevMouse.y = e.clientY;
-            }
-        });
-        window.addEventListener('mouseup', (e) => {
-            if (e.button === 0) isMouseDown = false;
-        });
-        window.addEventListener('mousemove', (e) => {
-            if (!isMouseDown || !gameActive) return;
-            const dx = e.clientX - prevMouse.x;
-            const dy = e.clientY - prevMouse.y;
-            prevMouse.x = e.clientX;
-            prevMouse.y = e.clientY;
-            const euler = new THREE.Euler(0, 0, 0, 'YXZ');
-            euler.setFromQuaternion(camera.quaternion);
-            euler.y -= dx * 0.005;
-            euler.x -= dy * 0.005;
-            euler.x = Math.max(-Math.PI/2.1, Math.min(Math.PI/2.1, euler.x));
-            camera.quaternion.setFromEuler(euler);
-        });
-
-        // ---------- Логика дома ----------
-        const hint = document.getElementById('hint');
-
-        function handleHouseInteraction() {
-            const doorPos = new THREE.Vector3(30, 0.9, 32.5);
-            const insidePos = new THREE.Vector3(30, 1.6, 30);
-            const pos = camera.position;
-
-            if (!insideHouse) {
-                const distToDoor = pos.distanceTo(doorPos);
-                if (distToDoor < 2.0) {
-                    insideHouse = true;
-                    camera.position.copy(insidePos);
-                    interiorGroup.visible = true;
-                    walls.visible = false;
-                    roof.visible = false;
-                    door.visible = false;
-                    handle.visible = false;
-                    win1.visible = false;
-                    win2.visible = false;
-                    win3.visible = false;
-                    win4.visible = false;
-                    hint.textContent = 'Нажмите E, чтобы выйти';
-                    hint.classList.add('show');
-                } else {
-                    hint.textContent = 'Подойдите к двери и нажмите E';
-                    hint.classList.add('show');
-                    setTimeout(() => hint.classList.remove('show'), 1500);
-                }
-            } else {
-                insideHouse = false;
-                camera.position.set(30, 1.6, 34);
-                interiorGroup.visible = false;
-                walls.visible = true;
-                roof.visible = true;
-                door.visible = true;
-                handle.visible = true;
-                win1.visible = true;
-                win2.visible = true;
-                win3.visible = true;
-                win4.visible = true;
-                hint.textContent = 'Нажмите E, чтобы войти';
-                hint.classList.add('show');
-                setTimeout(() => hint.classList.remove('show'), 1500);
-            }
-        }
-
-        // ---------- Стрельба ----------
-        let shotCooldown = 0;
-        const raycaster = new THREE.Raycaster();
-
-        function performShot() {
-            if (shotCooldown > 0) return;
-            shotCooldown = 0.2;
-
-            flash.visible = true;
-            setTimeout(() => { flash.visible = false; }, 80);
-
-            const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            raycaster.set(camera.position, dir);
-
-            const allAnimals = animalGroup.children;
-            const intersects = raycaster.intersectObjects(allAnimals, true);
-
-            if (intersects.length > 0) {
-                let hitObject = intersects[0].object;
-                let animalGroupObj = null;
-                while (hitObject) {
-                    if (hitObject.parent && hitObject.parent === animalGroup) {
-                        animalGroupObj = hitObject;
-                        break;
-                    }
-                    hitObject = hitObject.parent;
-                }
-                if (animalGroupObj && animalGroupObj.userData && animalGroupObj.userData.hp !== undefined && !animalGroupObj.userData.dead) {
-                    const data = animalGroupObj.userData;
-                    data.hp--;
-                    console.log('Попадание! Осталось HP:', data.hp);
-                    const fill = data.fill;
-                    const percent = data.hp / data.maxHp;
-                    fill.scale.x = Math.max(0, percent);
-                    fill.position.x = -0.28 * (1 - percent);
-                    createBlood(animalGroupObj.position);
-                    data.meshes.forEach(mesh => {
-                        if (mesh.material) {
-                            const origColor = mesh.material.color.getHex();
-                            mesh.material.color.setHex(0xff0000);
-                            setTimeout(() => {
-                                mesh.material.color.setHex(origColor);
-                            }, 150);
-                        }
-                    });
-                    if (data.hp <= 0) {
-                        data.dead = true;
-                        data.meshes.forEach(mesh => {
-                            if (mesh.material) {
-                                mesh.material.color.setHex(0x666666);
-                            }
-                        });
-                        animalGroupObj.rotation.x = -Math.PI/2;
-                        animalGroupObj.position.y = 0.1;
-                        if (data.hpBar) data.hpBar.visible = false;
-                        killCount++;
-                        killDisplay.textContent = killCount;
-                        const idx = aliveAnimals.indexOf(animalGroupObj);
-                        if (idx !== -1) aliveAnimals.splice(idx, 1);
-                    }
-                }
-            }
-        }
-
-        // ---------- Физика ----------
-        let velocityY = 0;
-        let isOnGround = true;
-        const gravity = -20;
-        const jumpSpeed = 7;
-        const walkSpeed = 5.0;
-        const worldRadius = 60;
-        let walkTime = 0;
-        const clock = new THREE.Clock();
-
-        // ---------- Старт ----------
-        const startOverlay = document.getElementById('start-overlay');
-        startOverlay.addEventListener('click', () => {
-            startOverlay.classList.add('hidden');
-            gameActive = true;
-            camera.position.set(0, 1.6, 20);
-            camera.quaternion.identity();
-            hint.textContent = 'Нажмите E, чтобы войти в дом';
-            hint.classList.add('show');
-            setTimeout(() => hint.classList.remove('show'), 3000);
-            console.log('Игра началась! Животных можно убивать (3 выстрела).');
-        });
-
-        // ---------- Обновление животных ----------
-        function updateAnimals(delta) {
-            aliveAnimals.forEach(animal => {
-                if (animal.userData.dead) return;
-                const data = animal.userData;
-                data.timer += delta;
-                if (data.timer > 2 + Math.random() * 3) {
-                    data.timer = 0;
-                    data.state = 'move';
-                    data.angle = Math.random() * Math.PI*2;
-                }
-                if (data.state === 'move') {
-                    const speed = data.speed * delta;
-                    const x = animal.position.x + Math.cos(data.angle) * speed;
-                    const z = animal.position.z + Math.sin(data.angle) * speed;
-                    const dist = Math.sqrt(x*x + z*z);
-                    if (dist < worldRadius && !(Math.abs(x) < 22 && Math.abs(z) < 22) && !(Math.abs(x-30) < 5 && Math.abs(z-30) < 5)) {
-                        animal.position.x = x;
-                        animal.position.z = z;
-                    } else {
-                        data.state = 'idle';
-                        data.timer = 0;
-                    }
-                    animal.rotation.y = -data.angle + Math.PI/2;
-                }
-                if (data.hpBar && data.hpBar.visible) {
-                    data.hpBar.lookAt(camera.position);
-                }
-            });
-        }
-
-        // ---------- Анимация ----------
-        function animate() {
-            const delta = Math.min(clock.getDelta(), 0.05);
-
-            if (gameActive) {
-                const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                forward.y = 0;
-                forward.normalize();
-                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-                right.y = 0;
-                right.normalize();
-
-                let moveX = 0, moveZ = 0;
-                if (keys['KeyW']) moveZ -= 1;
-                if (keys['KeyS']) moveZ += 1;
-                if (keys['KeyA']) moveX -= 1;
-                if (keys['KeyD']) moveX += 1;
-
-                const moveVec = new THREE.Vector3();
-                if (moveX !== 0 || moveZ !== 0) {
-                    moveVec.addScaledVector(forward, -moveZ);
-                    moveVec.addScaledVector(right, moveX);
-                    moveVec.normalize().multiplyScalar(walkSpeed * delta);
-                }
-
-                let newX = camera.position.x + moveVec.x;
-                let newZ = camera.position.z + moveVec.z;
-                const dist = Math.sqrt(newX*newX + newZ*newZ);
-                if (dist < worldRadius) {
-                    camera.position.x = newX;
-                    camera.position.z = newZ;
-                } else {
-                    const ratio = worldRadius / dist;
-                    camera.position.x = newX * ratio;
-                    camera.position.z = newZ * ratio;
-                }
-
-                if (keys['Space'] && isOnGround) {
-                    velocityY = jumpSpeed;
-                    isOnGround = false;
-                }
-
-                velocityY += gravity * delta;
-                camera.position.y += velocityY * delta;
-                if (camera.position.y <= 1.6) {
-                    camera.position.y = 1.6;
-                    velocityY = 0;
-                    isOnGround = true;
-                }
-
-                updateAnimals(delta);
-                if (shotCooldown > 0) shotCooldown -= delta;
-
-                if (!insideHouse) {
-                    const doorPos = new THREE.Vector3(30, 0.9, 32.5);
-                    const pos = camera.position;
-                    if (pos.distanceTo(doorPos) < 2.0) {
-                        hint.textContent = 'Нажмите E, чтобы войти';
-                        hint.classList.add('show');
-                    } else {
-                        hint.classList.remove('show');
-                    }
-                } else {
-                    hint.textContent = 'Нажмите E, чтобы выйти';
-                    hint.classList.add('show');
-                }
-
-                const isMoving = (moveX !== 0 || moveZ !== 0) && isOnGround;
-                if (isMoving) {
-                    walkTime += delta * 10;
-                    const bobY = Math.sin(walkTime) * 0.01;
-                    const bobX = Math.sin(walkTime * 0.8) * 0.005;
-                    weaponGroup.position.y = bobY;
-                    weaponGroup.position.x = bobX;
-                } else {
-                    weaponGroup.position.y += (0 - weaponGroup.position.y) * 0.08;
-                    weaponGroup.position.x += (0 - weaponGroup.position.x) * 0.08;
-                }
-            }
-
-            fishes.forEach(fish => {
-                const data = fish.userData;
-                data.angle += delta * data.speed;
-                const r = data.radius;
-                const x = Math.cos(data.angle) * r;
-                const z = Math.sin(data.angle) * r;
-                const y = -0.2 + Math.sin(data.angle * 0.8 + data.phase) * 0.3;
-                fish.position.x = x;
-                fish.position.z = z;
-                fish.position.y = y;
-                fish.rotation.y = -data.angle + Math.PI/2;
-                fish.rotation.z = Math.sin(data.angle * 2 + data.phase) * 0.1;
-            });
-
-            renderer.render(scene, camera);
-            requestAnimationFrame(animate);
-        }
-
-        animate();
-
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-
-        console.log('🔫 Лунтик с автоматом – сохрани эту игру!');
-    </script>
-</body>
-</html>
+import pygame
+import math
+import random
+import sys
+
+# Инициализация
+pygame.init()
+WIDTH, HEIGHT = 800, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Глаз ужаса: Лунтик")
+clock = pygame.time.Clock()
+font = pygame.font.Font(None, 36)
+
+# Цвета
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (200, 0, 0)
+GREEN = (0, 200, 0)
+BLUE = (0, 100, 200)
+YELLOW = (255, 255, 0)
+PURPLE = (150, 0, 255)
+BROWN = (139, 69, 19)
+LUNTIK_COLOR = (255, 180, 200)
+
+# Игрок
+class Player:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.angle = 0  # направление взгляда в градусах (0 = вправо)
+        self.speed = 3
+        self.radius = 15
+        self.fear = 0
+        self.eyes_closed = False
+        self.eye_close_timer = 0
+
+    def move(self, dx, dy):
+        # Движение с учётом границ
+        new_x = self.x + dx
+        new_y = self.y + dy
+        if 20 < new_x < WIDTH - 20:
+            self.x = new_x
+        if 20 < new_y < HEIGHT - 20:
+            self.y = new_y
+
+    def rotate(self, delta):
+        self.angle = (self.angle + delta) % 360
+
+    def close_eyes(self):
+        self.eyes_closed = True
+        self.eye_close_timer = 60  # на 1 секунду (60 кадров при 60 fps)
+
+    def update(self):
+        if self.eyes_closed:
+            self.eye_close_timer -= 1
+            if self.eye_close_timer <= 0:
+                self.eyes_closed = False
+                self.eye_close_timer = 0
+        # Страх медленно убывает, если не смотрим на монстра
+        if not self.is_looking_at_monster():
+            self.fear = max(0, self.fear - 0.1)
+
+    def is_looking_at_monster(self):
+        # Проверяем, смотрит ли игрок на какое-либо зеркало с Лунтиком
+        # Упрощённо: проверяем расстояние и угол до активного зеркала
+        for mirror in mirrors:
+            if mirror.active and mirror.luntik_visible:
+                # Вектор от игрока к зеркалу
+                dx = mirror.x - self.x
+                dy = mirror.y - self.y
+                dist = math.hypot(dx, dy)
+                if dist > 200:
+                    continue
+                # Угол до зеркала
+                angle_to_mirror = math.degrees(math.atan2(-dy, dx))  # в pygame y вниз
+                angle_to_mirror = angle_to_mirror % 360
+                # Разница между направлением взгляда и углом на зеркало
+                diff = abs(angle_to_mirror - self.angle)
+                if diff > 180:
+                    diff = 360 - diff
+                if diff < 30:  # если смотрит примерно на зеркало
+                    return True
+        return False
+
+# Зеркало
+class Mirror:
+    def __init__(self, x, y, width=40, height=60):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.active = True
+        self.luntik_visible = False
+        self.timer = 0
+
+    def update(self, player):
+        # Лунтик появляется, если игрок смотрит на зеркало достаточно долго
+        if self.active:
+            if player.is_looking_at_monster() and not player.eyes_closed:
+                self.timer += 1
+                if self.timer > 30:  # полсекунды взгляда
+                    self.luntik_visible = True
+                    # увеличиваем страх
+                    player.fear = min(100, player.fear + 0.4)
+            else:
+                self.timer = max(0, self.timer - 1)
+                if self.timer < 10:
+                    self.luntik_visible = False
+
+    def draw(self, screen):
+        if not self.active:
+            return
+        # Рисуем зеркало (серый прямоугольник)
+        pygame.draw.rect(screen, (100, 100, 100), (self.x - self.width//2, self.y - self.height//2, self.width, self.height))
+        pygame.draw.rect(screen, WHITE, (self.x - self.width//2 + 2, self.y - self.height//2 + 2, self.width-4, self.height-4), 2)
+        if self.luntik_visible:
+            # Рисуем Лунтика в зеркале
+            # Голова
+            pygame.draw.circle(screen, LUNTIK_COLOR, (self.x, self.y), 20)
+            # Глаза - большие, жуткие
+            pygame.draw.circle(screen, WHITE, (self.x - 8, self.y - 5), 8)
+            pygame.draw.circle(screen, WHITE, (self.x + 8, self.y - 5), 8)
+            pygame.draw.circle(screen, BLACK, (self.x - 10, self.y - 3), 4)
+            pygame.draw.circle(screen, BLACK, (self.x + 6, self.y - 3), 4)
+            # Улыбка
+            pygame.draw.arc(screen, BLACK, (self.x-12, self.y-5, 24, 20), 0.1, math.pi-0.1, 3)
+
+# Создаём объекты
+player = Player(WIDTH//2, HEIGHT//2)
+mirrors = [
+    Mirror(150, 150),
+    Mirror(650, 150),
+    Mirror(150, 450),
+    Mirror(650, 450),
+]
+
+# Генерация случайных стен (препятствия)
+walls = []
+for _ in range(8):
+    x = random.randint(100, 700)
+    y = random.randint(100, 500)
+    w = random.randint(30, 100)
+    h = random.randint(30, 80)
+    walls.append(pygame.Rect(x, y, w, h))
+
+# Главный игровой цикл
+running = True
+while running:
+    screen.fill(BLACK)
+    # События
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_q:
+                player.close_eyes()
+            if event.key == pygame.K_ESCAPE:
+                running = False
+
+    # Управление
+    keys = pygame.key.get_pressed()
+    dx, dy = 0, 0
+    if keys[pygame.K_a]:
+        dx = -player.speed
+    if keys[pygame.K_d]:
+        dx = player.speed
+    if keys[pygame.K_w]:
+        dy = -player.speed
+    if keys[pygame.K_s]:
+        dy = player.speed
+    # Поворот (влево/вправо)
+    if keys[pygame.K_LEFT]:
+        player.rotate(-3)
+    if keys[pygame.K_RIGHT]:
+        player.rotate(3)
+    player.move(dx, dy)
+
+    # Обновление
+    for mirror in mirrors:
+        mirror.update(player)
+    player.update()
+
+    # Проверка проигрыша
+    if player.fear >= 100:
+        screen.fill(RED)
+        text = font.render("Вас поглотил Лунтик! Нажмите ESC", True, WHITE)
+        screen.blit(text, (WIDTH//2 - 200, HEIGHT//2))
+        pygame.display.flip()
+        # Ждём ESC
+        waiting = True
+        while waiting:
+            for e in pygame.event.get():
+                if e.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE:
+                    waiting = False
+                    running = False
+        continue
+
+    # Отрисовка
+    # Стены
+    for wall in walls:
+        pygame.draw.rect(screen, BROWN, wall)
+
+    # Зеркала
+    for mirror in mirrors:
+        mirror.draw(screen)
+
+    # Игрок (круг)
+    pygame.draw.circle(screen, BLUE, (int(player.x), int(player.y)), player.radius)
+    # Линия взгляда
+    end_x = player.x + 40 * math.cos(math.radians(player.angle))
+    end_y = player.y - 40 * math.sin(math.radians(player.angle))
+    pygame.draw.line(screen, YELLOW, (player.x, player.y), (end_x, end_y), 3)
+
+    # Если глаза закрыты - затемнение
+    if player.eyes_closed:
+        s = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        s.fill((0, 0, 0, 180))
+        screen.blit(s, (0, 0))
+        text = font.render("Глаза закрыты", True, WHITE)
+        screen.blit(text, (WIDTH//2 - 80, 30))
+
+    # Шкала страха
+    pygame.draw.rect(screen, (50, 50, 50), (20, 20, 200, 30))
+    pygame.draw.rect(screen, RED, (20, 20, 2 * player.fear, 30))
+    text = font.render(f"Страх: {int(player.fear)}%", True, WHITE)
+    screen.blit(text, (230, 20))
+
+    # Информация
+    info = font.render("WASD - движение, стрелки - взгляд, Q - закрыть глаза", True, WHITE)
+    screen.blit(info, (20, HEIGHT - 40))
+
+    pygame.display.flip()
+    clock.tick(60)
+
+pygame.quit()
+sys.exit()
