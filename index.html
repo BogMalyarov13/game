@@ -1,239 +1,1409 @@
-import pygame
-import math
-import random
-import sys
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Выживание в лесу</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { overflow: hidden; background: #8ab8d4; font-family: Arial, sans-serif; }
+        canvas { display: block; cursor: pointer; }
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+            color: #fff;
+            text-shadow: 0 0 5px rgba(0,0,0,0.5);
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 28px;
+            color: rgba(255,255,255,0.7);
+        }
+        #stats {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.4);
+            padding: 8px 14px;
+            border-radius: 12px;
+            font-size: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            backdrop-filter: blur(2px);
+            border: 1px solid rgba(255,255,255,0.2);
+            pointer-events: none;
+        }
+        #stats-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        #health {
+            display: flex;
+            gap: 2px;
+            font-size: 18px;
+        }
+        #health .heart { color: #ff4757; }
+        #health .lost { color: #555; }
+        #hunger-container {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 14px;
+        }
+        #hunger-bar {
+            width: 100px;
+            height: 10px;
+            background: #333;
+            border-radius: 5px;
+            overflow: hidden;
+            border: 1px solid #555;
+        }
+        #hunger-fill {
+            height: 100%;
+            width: 100%;
+            background: #ffaa44;
+            border-radius: 5px;
+            transition: width 0.2s;
+        }
+        #inventory {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 16px;
+            margin-top: 3px;
+            background: rgba(0,0,0,0.3);
+            padding: 4px 12px;
+            border-radius: 8px;
+            pointer-events: none;
+            flex-wrap: wrap;
+        }
+        #inventory .icon { font-size: 18px; }
+        .inv-item { display: flex; align-items: center; gap: 4px; }
+        #kill-count { font-size: 14px; }
+        #hint {
+            position: absolute;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.4);
+            padding: 6px 18px;
+            border-radius: 20px;
+            font-size: 16px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            backdrop-filter: blur(2px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        #hint.show { opacity: 1; }
+        #controls {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            background: rgba(0,0,0,0.3);
+            padding: 8px 14px;
+            border-radius: 10px;
+            font-size: 13px;
+            backdrop-filter: blur(2px);
+            border: 1px solid rgba(255,255,255,0.2);
+            pointer-events: none;
+            text-align: right;
+        }
+        #controls kbd {
+            background: rgba(0,0,0,0.5);
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid #555;
+            margin: 0 2px;
+        }
+        #game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.85);
+            padding: 30px 50px;
+            border-radius: 16px;
+            border: 2px solid #ff4757;
+            text-align: center;
+            display: none;
+            z-index: 30;
+            pointer-events: auto;
+            color: #fff;
+        }
+        #game-over h1 {
+            font-size: 48px;
+            color: #ff4757;
+            text-shadow: 0 0 30px #ff0000;
+        }
+        #game-over button {
+            margin-top: 20px;
+            padding: 10px 30px;
+            font-size: 20px;
+            border: none;
+            border-radius: 10px;
+            background: #f1c40f;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.2s;
+        }
+        #game-over button:hover { background: #e6b800; transform: scale(1.05); }
+        @media (max-width: 700px) {
+            #controls { font-size: 11px; padding: 4px 8px; }
+            #stats { font-size: 13px; padding: 4px 10px; }
+            #hunger-bar { width: 70px; height: 8px; }
+            #health { font-size: 16px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div id="crosshair">✚</div>
+        <div id="stats">
+            <div id="stats-row">
+                <span id="health"></span>
+                <span id="kill-count">🦌 <span id="killCount">0</span></span>
+                <span id="hunger-container">
+                    <span>🍖</span>
+                    <div id="hunger-bar"><div id="hunger-fill" style="width:100%"></div></div>
+                    <span id="hunger-label">100%</span>
+                </span>
+            </div>
+            <div id="inventory">
+                <span class="inv-item"><span class="icon">🪵</span> <span id="woodCount">0</span></span>
+                <span class="inv-item"><span class="icon">🔥</span> <span id="fireCount">0</span></span>
+                <span class="inv-item"><span class="icon">🥩</span> <span id="meatCount">0</span></span>
+                <span class="inv-item"><span class="icon">🍓</span> <span id="berryCount">0</span></span>
+                <span style="font-size:12px; opacity:0.6;">F – есть мясо | E – стрельба/сбор</span>
+            </div>
+        </div>
+        <div id="hint">Нажмите <kbd>E</kbd> чтобы собрать дрова/ягоды</div>
+        <div id="controls">
+            <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> – ходьба &nbsp; <kbd>Пробел</kbd> – прыжок<br>
+            <kbd>E</kbd> – стрельба/сбор &nbsp; <kbd>F</kbd> – съесть мясо &nbsp; <kbd>ЛКМ</kbd> – осмотр
+        </div>
+    </div>
 
-# Инициализация
-pygame.init()
-WIDTH, HEIGHT = 800, 600
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Глаз ужаса: Лунтик")
-clock = pygame.time.Clock()
-font = pygame.font.Font(None, 36)
+    <div id="game-over">
+        <h1>💀 Вы погибли</h1>
+        <p>Голод или звери одолели вас...</p>
+        <button id="restartBtn">↺ Начать заново</button>
+    </div>
 
-# Цвета
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-RED = (200, 0, 0)
-GREEN = (0, 200, 0)
-BLUE = (0, 100, 200)
-YELLOW = (255, 255, 0)
-PURPLE = (150, 0, 255)
-BROWN = (139, 69, 19)
-LUNTIK_COLOR = (255, 180, 200)
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
+            }
+        }
+    </script>
 
-# Игрок
-class Player:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        self.angle = 0  # направление взгляда в градусах (0 = вправо)
-        self.speed = 3
-        self.radius = 15
-        self.fear = 0
-        self.eyes_closed = False
-        self.eye_close_timer = 0
+    <script type="module">
+        import * as THREE from 'three';
 
-    def move(self, dx, dy):
-        # Движение с учётом границ
-        new_x = self.x + dx
-        new_y = self.y + dy
-        if 20 < new_x < WIDTH - 20:
-            self.x = new_x
-        if 20 < new_y < HEIGHT - 20:
-            self.y = new_y
+        // ---------- СЦЕНА ----------
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x8ab8d4);
+        scene.fog = new THREE.Fog(0x8ab8d4, 60, 100);
 
-    def rotate(self, delta):
-        self.angle = (self.angle + delta) % 360
+        const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 150);
+        camera.position.set(0, 1.6, 20);
 
-    def close_eyes(self):
-        self.eyes_closed = True
-        self.eye_close_timer = 60  # на 1 секунду (60 кадров при 60 fps)
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+        document.body.prepend(renderer.domElement);
 
-    def update(self):
-        if self.eyes_closed:
-            self.eye_close_timer -= 1
-            if self.eye_close_timer <= 0:
-                self.eyes_closed = False
-                self.eye_close_timer = 0
-        # Страх медленно убывает, если не смотрим на монстра
-        if not self.is_looking_at_monster():
-            self.fear = max(0, self.fear - 0.1)
+        // ---------- ОСВЕЩЕНИЕ ----------
+        const ambient = new THREE.AmbientLight(0x8090b0, 0.7);
+        scene.add(ambient);
+        const sun = new THREE.DirectionalLight(0xffeedd, 1.5);
+        sun.position.set(40, 50, 30);
+        sun.castShadow = true;
+        sun.shadow.mapSize.width = 2048;
+        sun.shadow.mapSize.height = 2048;
+        sun.shadow.camera.near = 0.5;
+        sun.shadow.camera.far = 100;
+        sun.shadow.camera.left = -60;
+        sun.shadow.camera.right = 60;
+        sun.shadow.camera.top = 60;
+        sun.shadow.camera.bottom = -60;
+        scene.add(sun);
+        const fill = new THREE.DirectionalLight(0x88aaff, 0.4);
+        fill.position.set(-30, 20, -30);
+        scene.add(fill);
+        const rim = new THREE.DirectionalLight(0xffddbb, 0.3);
+        rim.position.set(0, 10, -40);
+        scene.add(rim);
 
-    def is_looking_at_monster(self):
-        # Проверяем, смотрит ли игрок на какое-либо зеркало с Лунтиком
-        # Упрощённо: проверяем расстояние и угол до активного зеркала
-        for mirror in mirrors:
-            if mirror.active and mirror.luntik_visible:
-                # Вектор от игрока к зеркалу
-                dx = mirror.x - self.x
-                dy = mirror.y - self.y
-                dist = math.hypot(dx, dy)
-                if dist > 200:
-                    continue
-                # Угол до зеркала
-                angle_to_mirror = math.degrees(math.atan2(-dy, dx))  # в pygame y вниз
-                angle_to_mirror = angle_to_mirror % 360
-                # Разница между направлением взгляда и углом на зеркало
-                diff = abs(angle_to_mirror - self.angle)
-                if diff > 180:
-                    diff = 360 - diff
-                if diff < 30:  # если смотрит примерно на зеркало
-                    return True
-        return False
+        // ---------- ЗЕМЛЯ ----------
+        const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(200, 200),
+            new THREE.MeshStandardMaterial({ color: 0x4a8a4a, roughness: 0.8 })
+        );
+        ground.rotation.x = -Math.PI/2;
+        ground.receiveShadow = true;
+        scene.add(ground);
 
-# Зеркало
-class Mirror:
-    def __init__(self, x, y, width=40, height=60):
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
-        self.active = True
-        self.luntik_visible = False
-        self.timer = 0
+        // ---------- ТРАВА ----------
+        const grassTexture = (() => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 8;
+            canvas.height = 8;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#2a7a2a';
+            ctx.fillRect(2, 0, 4, 8);
+            ctx.fillStyle = '#3a8a3a';
+            ctx.fillRect(0, 2, 8, 4);
+            return new THREE.CanvasTexture(canvas);
+        })();
+        const grassMat = new THREE.PointsMaterial({
+            color: 0x4a8a4a,
+            map: grassTexture,
+            size: 0.3,
+            transparent: true,
+            opacity: 0.8,
+            depthWrite: false,
+        });
+        const grassGeo = new THREE.BufferGeometry();
+        const grassCount = 6000;
+        const positions = new Float32Array(grassCount * 3);
+        for (let i = 0; i < grassCount; i++) {
+            const angle = Math.random() * Math.PI*2;
+            const radius = 5 + Math.random() * 90;
+            const x = Math.cos(angle) * radius;
+            const z = Math.sin(angle) * radius;
+            if (Math.abs(x) < 22 && Math.abs(z) < 22) continue;
+            positions[i*3] = x;
+            positions[i*3+1] = 0.02;
+            positions[i*3+2] = z;
+        }
+        grassGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const grass = new THREE.Points(grassGeo, grassMat);
+        scene.add(grass);
 
-    def update(self, player):
-        # Лунтик появляется, если игрок смотрит на зеркало достаточно долго
-        if self.active:
-            if player.is_looking_at_monster() and not player.eyes_closed:
-                self.timer += 1
-                if self.timer > 30:  # полсекунды взгляда
-                    self.luntik_visible = True
-                    # увеличиваем страх
-                    player.fear = min(100, player.fear + 0.4)
-            else:
-                self.timer = max(0, self.timer - 1)
-                if self.timer < 10:
-                    self.luntik_visible = False
+        // ---------- ДЕРЕВЬЯ ----------
+        const treeColliders = [];
+        function createTree(x, z) {
+            const g = new THREE.Group();
+            const h = 1.8 + Math.random() * 3.5;
+            const trunk = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.25, 0.4, h, 6),
+                new THREE.MeshStandardMaterial({ color: 0x7a5a3a, roughness: 0.8 })
+            );
+            trunk.position.y = h/2;
+            trunk.castShadow = true;
+            trunk.receiveShadow = true;
+            g.add(trunk);
+            const ch = 1.8 + Math.random() * 2.8;
+            const cr = 0.8 + Math.random() * 2.0;
+            const crown = new THREE.Mesh(
+                new THREE.ConeGeometry(cr, ch, 7),
+                new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.25 + Math.random()*0.1, 0.6, 0.35 + Math.random()*0.25), roughness: 0.6 })
+            );
+            crown.position.y = h + ch/2 - 0.3;
+            crown.castShadow = true;
+            crown.receiveShadow = true;
+            g.add(crown);
+            g.position.set(x, 0, z);
+            scene.add(g);
+            treeColliders.push({ x, z, radius: 0.8 });
+            return g;
+        }
+        for (let i=0; i<280; i++) {
+            const angle = Math.random() * Math.PI*2;
+            const radius = 6 + Math.random() * 55;
+            const x = Math.cos(angle) * radius;
+            const z = Math.sin(angle) * radius;
+            if (Math.abs(x) < 22 && Math.abs(z) < 22) continue;
+            createTree(x, z);
+        }
 
-    def draw(self, screen):
-        if not self.active:
-            return
-        # Рисуем зеркало (серый прямоугольник)
-        pygame.draw.rect(screen, (100, 100, 100), (self.x - self.width//2, self.y - self.height//2, self.width, self.height))
-        pygame.draw.rect(screen, WHITE, (self.x - self.width//2 + 2, self.y - self.height//2 + 2, self.width-4, self.height-4), 2)
-        if self.luntik_visible:
-            # Рисуем Лунтика в зеркале
-            # Голова
-            pygame.draw.circle(screen, LUNTIK_COLOR, (self.x, self.y), 20)
-            # Глаза - большие, жуткие
-            pygame.draw.circle(screen, WHITE, (self.x - 8, self.y - 5), 8)
-            pygame.draw.circle(screen, WHITE, (self.x + 8, self.y - 5), 8)
-            pygame.draw.circle(screen, BLACK, (self.x - 10, self.y - 3), 4)
-            pygame.draw.circle(screen, BLACK, (self.x + 6, self.y - 3), 4)
-            # Улыбка
-            pygame.draw.arc(screen, BLACK, (self.x-12, self.y-5, 24, 20), 0.1, math.pi-0.1, 3)
+        // ---------- КУСТЫ ----------
+        for (let i=0; i<70; i++) {
+            const angle = Math.random() * Math.PI*2;
+            const radius = 5 + Math.random() * 50;
+            const x = Math.cos(angle) * radius;
+            const z = Math.sin(angle) * radius;
+            if (Math.abs(x) < 22 && Math.abs(z) < 22) continue;
+            const bush = new THREE.Mesh(
+                new THREE.SphereGeometry(0.3+Math.random()*0.6, 5),
+                new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.3, 0.5, 0.25+Math.random()*0.15), roughness: 0.8 })
+            );
+            bush.position.set(x, 0.2, z);
+            bush.castShadow = true;
+            bush.receiveShadow = true;
+            scene.add(bush);
+        }
 
-# Создаём объекты
-player = Player(WIDTH//2, HEIGHT//2)
-mirrors = [
-    Mirror(150, 150),
-    Mirror(650, 150),
-    Mirror(150, 450),
-    Mirror(650, 450),
-]
+        // ---------- ПРУД ----------
+        const pondRadius = 18;
+        const water = new THREE.Mesh(
+            new THREE.CircleGeometry(pondRadius, 48),
+            new THREE.MeshStandardMaterial({
+                color: 0x2a8aaa,
+                transparent: true,
+                opacity: 0.5,
+                roughness: 0.1,
+                metalness: 0.3,
+                emissive: 0x1a4a6a,
+                emissiveIntensity: 0.05,
+                side: THREE.DoubleSide,
+            })
+        );
+        water.rotation.x = -Math.PI/2;
+        water.position.y = 0.05;
+        water.receiveShadow = true;
+        scene.add(water);
+        for (let i=0; i<40; i++) {
+            const angle = Math.random() * Math.PI*2;
+            const r = Math.random() * (pondRadius - 2);
+            const x = Math.cos(angle) * r;
+            const z = Math.sin(angle) * r;
+            const glitter = new THREE.Mesh(
+                new THREE.CircleGeometry(0.2 + Math.random()*0.5, 6),
+                new THREE.MeshBasicMaterial({ color: 0x88ddff, transparent: true, opacity: 0.1 + Math.random()*0.15 })
+            );
+            glitter.rotation.x = -Math.PI/2;
+            glitter.position.set(x, 0.08, z);
+            scene.add(glitter);
+        }
 
-# Генерация случайных стен (препятствия)
-walls = []
-for _ in range(8):
-    x = random.randint(100, 700)
-    y = random.randint(100, 500)
-    w = random.randint(30, 100)
-    h = random.randint(30, 80)
-    walls.append(pygame.Rect(x, y, w, h))
+        // ---------- РЫБКИ ----------
+        const fishGroup = new THREE.Group();
+        scene.add(fishGroup);
+        const fishes = [];
+        for (let i=0; i<12; i++) {
+            const g = new THREE.Group();
+            const body = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.08, 0.08, 0.3, 5),
+                new THREE.MeshStandardMaterial({ color: 0xffaa44, roughness: 0.3 })
+            );
+            body.rotation.x = Math.PI/2;
+            body.position.z = 0.05;
+            body.castShadow = true;
+            g.add(body);
+            const tail = new THREE.Mesh(
+                new THREE.ConeGeometry(0.06, 0.12, 4),
+                new THREE.MeshStandardMaterial({ color: 0xff8844 })
+            );
+            tail.position.z = -0.2;
+            tail.rotation.x = 0.2;
+            g.add(tail);
+            const eye = new THREE.Mesh(
+                new THREE.SphereGeometry(0.02, 4),
+                new THREE.MeshStandardMaterial({ color: 0x000000 })
+            );
+            eye.position.set(0.04, 0.03, 0.12);
+            g.add(eye);
+            const eye2 = eye.clone();
+            eye2.position.set(-0.04, 0.03, 0.12);
+            g.add(eye2);
+            g.userData = { angle: Math.random()*Math.PI*2, speed: 0.3+Math.random()*0.5, radius: 0.5+Math.random()*2, phase: Math.random()*Math.PI*2 };
+            const a = Math.random()*Math.PI*2;
+            const r = Math.random()*(pondRadius-1);
+            g.position.set(Math.cos(a)*r, -0.2+(Math.random()-0.5)*0.6, Math.sin(a)*r);
+            g.rotation.y = Math.random()*Math.PI*2;
+            fishGroup.add(g);
+            fishes.push(g);
+        }
 
-# Главный игровой цикл
-running = True
-while running:
-    screen.fill(BLACK)
-    # События
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_q:
-                player.close_eyes()
-            if event.key == pygame.K_ESCAPE:
-                running = False
+        // ---------- ДОМ ----------
+        const houseGroup = new THREE.Group();
+        houseGroup.position.set(30, 0, 30);
+        scene.add(houseGroup);
+        const wallMat = new THREE.MeshStandardMaterial({ color: 0xd4b48c, roughness: 0.8 });
+        const walls = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 5), wallMat);
+        walls.position.y = 1.5;
+        walls.castShadow = true;
+        walls.receiveShadow = true;
+        houseGroup.add(walls);
+        const roofMat = new THREE.MeshStandardMaterial({ color: 0x8b3a3a, roughness: 0.7 });
+        const roof = new THREE.Mesh(new THREE.ConeGeometry(3.8, 1.5, 4), roofMat);
+        roof.position.y = 3.0 + 0.75;
+        roof.rotation.y = Math.PI/4;
+        roof.castShadow = true;
+        roof.receiveShadow = true;
+        houseGroup.add(roof);
+        const doorMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2a });
+        const door = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.8, 0.1), doorMat);
+        door.position.set(0, 0.9, 2.51);
+        door.castShadow = true;
+        houseGroup.add(door);
+        const handleMat = new THREE.MeshStandardMaterial({ color: 0xffaa00 });
+        const handle = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6), handleMat);
+        handle.position.set(0.3, 0.9, 2.56);
+        houseGroup.add(handle);
+        const windowMat = new THREE.MeshStandardMaterial({ color: 0x88ccff, emissive: 0x224466, emissiveIntensity: 0.1 });
+        const win1 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.05), windowMat);
+        win1.position.set(1.2, 1.8, 2.51);
+        houseGroup.add(win1);
+        const win2 = win1.clone();
+        win2.position.set(-1.2, 1.8, 2.51);
+        houseGroup.add(win2);
+        const win3 = win1.clone();
+        win3.position.set(2.51, 1.8, 1.2);
+        win3.rotation.y = Math.PI/2;
+        houseGroup.add(win3);
+        const win4 = win1.clone();
+        win4.position.set(-2.51, 1.8, 1.2);
+        win4.rotation.y = Math.PI/2;
+        houseGroup.add(win4);
 
-    # Управление
-    keys = pygame.key.get_pressed()
-    dx, dy = 0, 0
-    if keys[pygame.K_a]:
-        dx = -player.speed
-    if keys[pygame.K_d]:
-        dx = player.speed
-    if keys[pygame.K_w]:
-        dy = -player.speed
-    if keys[pygame.K_s]:
-        dy = player.speed
-    # Поворот (влево/вправо)
-    if keys[pygame.K_LEFT]:
-        player.rotate(-3)
-    if keys[pygame.K_RIGHT]:
-        player.rotate(3)
-    player.move(dx, dy)
+        // ---------- АВТОМАТ ----------
+        const weaponGroup = new THREE.Group();
+        camera.add(weaponGroup);
+        const barrelMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.5, metalness: 0.8 });
+        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 0.6, 6), barrelMat);
+        barrel.rotation.x = Math.PI/2;
+        barrel.position.set(0.2, -0.1, -0.4);
+        weaponGroup.add(barrel);
+        const stockMat = new THREE.MeshStandardMaterial({ color: 0x5a3a1a, roughness: 0.9 });
+        const stock = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.35), stockMat);
+        stock.position.set(0.2, -0.1, -0.85);
+        weaponGroup.add(stock);
+        const handguard = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.3), barrelMat);
+        handguard.position.set(0.2, 0.0, -0.5);
+        weaponGroup.add(handguard);
+        const magMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+        const mag = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.18, 0.12), magMat);
+        mag.position.set(0.2, -0.22, -0.55);
+        weaponGroup.add(mag);
+        const gripMat = new THREE.MeshStandardMaterial({ color: 0x4a2a1a });
+        const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 0.2, 6), gripMat);
+        grip.position.set(0.2, -0.22, -0.65);
+        grip.rotation.x = 0.3;
+        weaponGroup.add(grip);
+        const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.08, 6), barrelMat);
+        muzzle.rotation.x = Math.PI/2;
+        muzzle.position.set(0.2, -0.1, -0.12);
+        weaponGroup.add(muzzle);
+        const sight = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.04, 0.02), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+        sight.position.set(0.2, 0.06, -0.35);
+        weaponGroup.add(sight);
 
-    # Обновление
-    for mirror in mirrors:
-        mirror.update(player)
-    player.update()
+        // Вспышка
+        const flashMat = new THREE.SpriteMaterial({
+            map: (() => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 32;
+                canvas.height = 32;
+                const ctx = canvas.getContext('2d');
+                const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+                gradient.addColorStop(0, 'rgba(255,255,200,1)');
+                gradient.addColorStop(0.3, 'rgba(255,200,100,0.8)');
+                gradient.addColorStop(1, 'rgba(255,100,0,0)');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, 32, 32);
+                return new THREE.CanvasTexture(canvas);
+            })(),
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+        });
+        const flash = new THREE.Sprite(flashMat);
+        flash.position.set(0.2, -0.1, -0.1);
+        flash.scale.set(0.3, 0.3, 1);
+        flash.visible = false;
+        weaponGroup.add(flash);
 
-    # Проверка проигрыша
-    if player.fear >= 100:
-        screen.fill(RED)
-        text = font.render("Вас поглотил Лунтик! Нажмите ESC", True, WHITE)
-        screen.blit(text, (WIDTH//2 - 200, HEIGHT//2))
-        pygame.display.flip()
-        # Ждём ESC
-        waiting = True
-        while waiting:
-            for e in pygame.event.get():
-                if e.type == pygame.QUIT:
-                    pygame.quit()
-                    sys.exit()
-                if e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE:
-                    waiting = False
-                    running = False
-        continue
+        // ---------- РЕСУРСЫ ----------
+        // Дрова (куски дерева)
+        const woodObjects = [];
+        function spawnWood(pos) {
+            const wood = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.08, 0.1, 0.2, 4),
+                new THREE.MeshStandardMaterial({ color: 0x6a4a2a, roughness: 0.9 })
+            );
+            wood.position.copy(pos);
+            wood.position.y = 0.06;
+            wood.rotation.set(Math.random(), Math.random(), Math.random());
+            wood.castShadow = true;
+            wood.receiveShadow = true;
+            scene.add(wood);
+            woodObjects.push(wood);
+            return wood;
+        }
 
-    # Отрисовка
-    # Стены
-    for wall in walls:
-        pygame.draw.rect(screen, BROWN, wall)
+        // Ягоды (красные кустики)
+        const berryObjects = [];
+        function spawnBerry(pos) {
+            const g = new THREE.Group();
+            const bush = new THREE.Mesh(
+                new THREE.SphereGeometry(0.15, 4),
+                new THREE.MeshStandardMaterial({ color: 0x2a7a2a })
+            );
+            bush.position.y = 0.08;
+            bush.castShadow = true;
+            g.add(bush);
+            for (let i=0; i<3; i++) {
+                const berry = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.04, 4),
+                    new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: 0x440000 })
+                );
+                const a = Math.random()*Math.PI*2;
+                const r = 0.05 + Math.random()*0.1;
+                berry.position.set(Math.cos(a)*r, 0.15 + Math.random()*0.04, Math.sin(a)*r);
+                g.add(berry);
+            }
+            g.position.copy(pos);
+            g.position.y = 0;
+            scene.add(g);
+            berryObjects.push(g);
+            return g;
+        }
 
-    # Зеркала
-    for mirror in mirrors:
-        mirror.draw(screen)
+        // Разброс ресурсов
+        for (let i=0; i<30; i++) {
+            const angle = Math.random()*Math.PI*2;
+            const radius = 5 + Math.random()*45;
+            const x = Math.cos(angle)*radius;
+            const z = Math.sin(angle)*radius;
+            if (Math.abs(x) < 22 && Math.abs(z) < 22) continue;
+            if (Math.abs(x-30) < 5 && Math.abs(z-30) < 5) continue;
+            spawnWood(new THREE.Vector3(x, 0, z));
+        }
+        for (let i=0; i<25; i++) {
+            const angle = Math.random()*Math.PI*2;
+            const radius = 5 + Math.random()*40;
+            const x = Math.cos(angle)*radius;
+            const z = Math.sin(angle)*radius;
+            if (Math.abs(x) < 22 && Math.abs(z) < 22) continue;
+            if (Math.abs(x-30) < 5 && Math.abs(z-30) < 5) continue;
+            spawnBerry(new THREE.Vector3(x, 0, z));
+        }
 
-    # Игрок (круг)
-    pygame.draw.circle(screen, BLUE, (int(player.x), int(player.y)), player.radius)
-    # Линия взгляда
-    end_x = player.x + 40 * math.cos(math.radians(player.angle))
-    end_y = player.y - 40 * math.sin(math.radians(player.angle))
-    pygame.draw.line(screen, YELLOW, (player.x, player.y), (end_x, end_y), 3)
+        // ---------- ЖИВОТНЫЕ ----------
+        const animalGroup = new THREE.Group();
+        scene.add(animalGroup);
+        let aliveAnimals = [];
+        let deadAnimals = [];
+        const RESPAWN_TIME = 10;
 
-    # Если глаза закрыты - затемнение
-    if player.eyes_closed:
-        s = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        s.fill((0, 0, 0, 180))
-        screen.blit(s, (0, 0))
-        text = font.render("Глаза закрыты", True, WHITE)
-        screen.blit(text, (WIDTH//2 - 80, 30))
+        function createAnimal(type, x, z) {
+            const g = new THREE.Group();
+            let color1, color2, size, hp, speed, aggressive, hitRadius, attackDamage, meatDrop;
+            switch(type) {
+                case 'deer':
+                    color1 = 0x8a6a4a; color2 = 0x6a4a2a; size = 0.5; hp = 3; speed = 0.5+Math.random()*0.5; aggressive = false; hitRadius = 0.8; attackDamage = 0; meatDrop = 2; break;
+                case 'rabbit':
+                    color1 = 0x8a7a6a; color2 = 0x6a5a4a; size = 0.25; hp = 1; speed = 1.2+Math.random()*0.8; aggressive = false; hitRadius = 0.4; attackDamage = 0; meatDrop = 1; break;
+                case 'wolf':
+                    color1 = 0x5a5a5a; color2 = 0x3a3a3a; size = 0.45; hp = 2; speed = 1.0+Math.random()*0.5; aggressive = true; hitRadius = 0.7; attackDamage = 1; meatDrop = 1; break;
+                case 'bear':
+                    color1 = 0x3a2a1a; color2 = 0x2a1a0a; size = 0.8; hp = 6; speed = 0.3+Math.random()*0.3; aggressive = true; hitRadius = 1.2; attackDamage = 2; meatDrop = 4; break;
+                default: color1 = 0x8a6a4a; color2 = 0x6a4a2a; size = 0.5; hp = 3; speed = 0.5; aggressive = false; hitRadius = 0.8; attackDamage = 0; meatDrop = 2;
+            }
+            const matBody = new THREE.MeshStandardMaterial({ color: color1, roughness: 0.8 });
+            const matLegs = new THREE.MeshStandardMaterial({ color: color2, roughness: 0.9 });
+            const matHead = new THREE.MeshStandardMaterial({ color: color1, roughness: 0.7 });
+            const body = new THREE.Mesh(new THREE.SphereGeometry(size, 8, 8), matBody);
+            body.scale.set(1.2, 0.8, 0.8);
+            body.position.y = size * 0.8;
+            body.castShadow = true;
+            body.receiveShadow = true;
+            g.add(body);
+            const head = new THREE.Mesh(new THREE.SphereGeometry(size * 0.55, 6), matHead);
+            head.position.set(size * 1.1, size * 1.2, 0);
+            head.castShadow = true;
+            head.receiveShadow = true;
+            g.add(head);
+            if (type === 'rabbit') {
+                const earMat = new THREE.MeshStandardMaterial({ color: 0x8a7a6a });
+                for (let side = -1; side <= 1; side+=2) {
+                    const ear = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.05, size * 0.8, 4), earMat);
+                    ear.position.set(side * size * 0.25, size * 1.6, 0);
+                    ear.rotation.z = side * 0.3;
+                    ear.rotation.x = -0.2;
+                    ear.castShadow = true;
+                    g.add(ear);
+                }
+            }
+            if (type === 'deer') {
+                const hornMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2a });
+                for (let side = -1; side <= 1; side+=2) {
+                    const horn = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.06, size * 0.8, 4), hornMat);
+                    horn.position.set(side * size * 0.4, size * 1.8, 0);
+                    horn.rotation.z = side * 0.3;
+                    horn.rotation.x = -0.2;
+                    horn.castShadow = true;
+                    g.add(horn);
+                    const horn2 = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.04, size * 0.6, 4), hornMat);
+                    horn2.position.set(side * size * 0.7, size * 2.0, 0);
+                    horn2.rotation.z = side * 0.5;
+                    horn2.rotation.x = 0.2;
+                    horn2.castShadow = true;
+                    g.add(horn2);
+                }
+            }
+            const tailMat = new THREE.MeshStandardMaterial({ color: color2 });
+            const tail = new THREE.Mesh(new THREE.ConeGeometry(size*0.12, size*0.4, 4), tailMat);
+            tail.position.set(-size*1.2, size*0.6, 0);
+            tail.rotation.x = 0.3;
+            tail.rotation.z = 0.2;
+            tail.castShadow = true;
+            g.add(tail);
+            const legGroup = new THREE.Group();
+            for (let i = -1; i <= 1; i+=2) {
+                for (let j = -1; j <= 1; j+=2) {
+                    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, size * 1.0, 4), matLegs);
+                    leg.position.set(i * size * 0.6, 0.1, j * size * 0.5);
+                    leg.castShadow = true;
+                    leg.receiveShadow = true;
+                    legGroup.add(leg);
+                }
+            }
+            g.add(legGroup);
+            // HP бар
+            const hpBarGroup = new THREE.Group();
+            hpBarGroup.position.set(0, size * 2.2, 0);
+            const bg = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.08), new THREE.MeshBasicMaterial({ color: 0x333333 }));
+            bg.position.z = -0.01;
+            hpBarGroup.add(bg);
+            const fill = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.06), new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
+            fill.position.z = 0.01;
+            fill.position.x = 0;
+            hpBarGroup.add(fill);
+            g.add(hpBarGroup);
+            g.position.set(x, 0, z);
+            g.userData = {
+                type, state: 'idle', timer: 0, speed, hp, maxHp: hp, meatDrop,
+                angle: Math.random()*Math.PI*2, hpBar, fill, dead: false,
+                aggressive, hitRadius, attackDamage, attackCooldown: 0,
+                legGroup, walkTime: 0, meshes: []
+            };
+            g.traverse((child) => { if (child.isMesh) g.userData.meshes.push(child); });
+            animalGroup.add(g);
+            return g;
+        }
 
-    # Шкала страха
-    pygame.draw.rect(screen, (50, 50, 50), (20, 20, 200, 30))
-    pygame.draw.rect(screen, RED, (20, 20, 2 * player.fear, 30))
-    text = font.render(f"Страх: {int(player.fear)}%", True, WHITE)
-    screen.blit(text, (230, 20))
+        function getRandomSpawnPosition() {
+            let x, z, valid;
+            let attempts = 0;
+            do {
+                const angle = Math.random() * Math.PI*2;
+                const radius = 8 + Math.random() * 70;
+                x = Math.cos(angle) * radius;
+                z = Math.sin(angle) * radius;
+                valid = true;
+                if (Math.abs(x) < 22 && Math.abs(z) < 22) valid = false;
+                if (Math.abs(x-30) < 5 && Math.abs(z-30) < 5) valid = false;
+                attempts++;
+            } while (!valid && attempts < 20);
+            return { x, z };
+        }
 
-    # Информация
-    info = font.render("WASD - движение, стрелки - взгляд, Q - закрыть глаза", True, WHITE)
-    screen.blit(info, (20, HEIGHT - 40))
+        function spawnAnimals() {
+            const counts = { deer: 30, rabbit: 20, wolf: 12, bear: 5 };
+            for (let type of ['deer','rabbit','wolf','bear']) {
+                for (let i=0; i<counts[type]; i++) {
+                    const pos = getRandomSpawnPosition();
+                    aliveAnimals.push(createAnimal(type, pos.x, pos.z));
+                }
+            }
+        }
+        spawnAnimals();
 
-    pygame.display.flip()
-    clock.tick(60)
+        setInterval(() => {
+            for (let i = deadAnimals.length - 1; i >= 0; i--) {
+                const entry = deadAnimals[i];
+                entry.timeLeft -= 1;
+                if (entry.timeLeft <= 0) {
+                    const pos = getRandomSpawnPosition();
+                    const newAnimal = createAnimal(entry.type, pos.x, pos.z);
+                    aliveAnimals.push(newAnimal);
+                    deadAnimals.splice(i, 1);
+                }
+            }
+        }, 1000);
 
-pygame.quit()
-sys.exit()
+        function onAnimalDeath(animal) {
+            const type = animal.userData.type;
+            deadAnimals.push({ type, timeLeft: RESPAWN_TIME });
+        }
+
+        // ---------- ИНВЕНТАРЬ ----------
+        let woodCount = 0;
+        let fireCount = 0;
+        let meatCount = 0;
+        let berryCount = 0;
+        const woodDisplay = document.getElementById('woodCount');
+        const fireDisplay = document.getElementById('fireCount');
+        const meatDisplay = document.getElementById('meatCount');
+        const berryDisplay = document.getElementById('berryCount');
+
+        function updateInventoryUI() {
+            woodDisplay.textContent = woodCount;
+            fireDisplay.textContent = fireCount;
+            meatDisplay.textContent = meatCount;
+            berryDisplay.textContent = berryCount;
+        }
+
+        // ---------- ГОЛОД ----------
+        let hunger = 100;
+        const maxHunger = 100;
+        const hungerFill = document.getElementById('hunger-fill');
+        const hungerLabel = document.getElementById('hunger-label');
+
+        function updateHungerUI() {
+            const percent = Math.max(0, Math.min(100, hunger));
+            hungerFill.style.width = percent + '%';
+            hungerLabel.textContent = Math.round(percent) + '%';
+            if (percent < 30) hungerFill.style.background = '#ff4444';
+            else if (percent < 60) hungerFill.style.background = '#ffaa44';
+            else hungerFill.style.background = '#44ff44';
+        }
+
+        // ---------- ЗДОРОВЬЕ ----------
+        let playerHP = 5;
+        const maxHP = 5;
+        const healthEl = document.getElementById('health');
+        function updateHealthUI() {
+            let html = '';
+            for (let i = 0; i < maxHP; i++) {
+                html += (i < playerHP) ? '<span class="heart">❤️</span>' : '<span class="lost">❤️</span>';
+            }
+            healthEl.innerHTML = html;
+        }
+        updateHealthUI();
+
+        function takeDamage(amount) {
+            if (gameOver) return;
+            playerHP -= amount;
+            if (playerHP < 0) playerHP = 0;
+            updateHealthUI();
+            if (playerHP === 0) {
+                gameOver = true;
+                gameOverDiv.style.display = 'block';
+                document.getElementById('start-overlay')?.classList.add('hidden');
+            }
+        }
+
+        // ---------- КРАФТ ----------
+        function craftFire() {
+            if (woodCount >= 3) {
+                woodCount -= 3;
+                fireCount++;
+                updateInventoryUI();
+                hint.textContent = 'Развели костёр! 🔥';
+                hint.classList.add('show');
+                setTimeout(() => hint.classList.remove('show'), 2000);
+            } else {
+                hint.textContent = 'Нужно 3 дрова!';
+                hint.classList.add('show');
+                setTimeout(() => hint.classList.remove('show'), 1500);
+            }
+        }
+
+        // ---------- УПРАВЛЕНИЕ ----------
+        let gameActive = false, gameOver = false;
+        let isMouseDown = false, prevMouse = { x: 0, y: 0 };
+        let killCount = 0;
+        const killDisplay = document.getElementById('killCount');
+
+        // ---------- КЛАВИШИ ----------
+        const keys = {};
+        document.addEventListener('keydown', (e) => {
+            keys[e.code] = true;
+            if (e.code === 'Space') e.preventDefault();
+            if (e.code === 'KeyE') {
+                if (gameActive && !gameOver) {
+                    // Стрельба или взаимодействие
+                    performShot();
+                    // Сбор ресурсов
+                    collectResources();
+                }
+            }
+            if (e.code === 'KeyF') {
+                if (gameActive && !gameOver) eatMeat();
+            }
+            if (e.code === 'KeyC') {
+                if (gameActive && !gameOver) craftFire();
+            }
+        });
+        document.addEventListener('keyup', (e) => {
+            keys[e.code] = false;
+        });
+
+        // ---------- СБОР РЕСУРСОВ ----------
+        function collectResources() {
+            const pos = camera.position;
+            // Сбор дров
+            for (let i = woodObjects.length - 1; i >= 0; i--) {
+                const w = woodObjects[i];
+                if (pos.distanceTo(w.position) < 2.0) {
+                    scene.remove(w);
+                    woodObjects.splice(i, 1);
+                    woodCount++;
+                    updateInventoryUI();
+                    hint.textContent = 'Собрали дрова 🪵';
+                    hint.classList.add('show');
+                    setTimeout(() => hint.classList.remove('show'), 1000);
+                    return;
+                }
+            }
+            // Сбор ягод
+            for (let i = berryObjects.length - 1; i >= 0; i--) {
+                const b = berryObjects[i];
+                if (pos.distanceTo(b.position) < 2.0) {
+                    scene.remove(b);
+                    berryObjects.splice(i, 1);
+                    berryCount++;
+                    updateInventoryUI();
+                    // Восстанавливаем голод
+                    hunger = Math.min(maxHunger, hunger + 10);
+                    updateHungerUI();
+                    hint.textContent = 'Собрали ягоды 🍓 (+10 голод)';
+                    hint.classList.add('show');
+                    setTimeout(() => hint.classList.remove('show'), 1000);
+                    return;
+                }
+            }
+        }
+
+        // ---------- ЕДА ----------
+        function eatMeat() {
+            if (meatCount <= 0) {
+                hint.textContent = 'Нет мяса!';
+                hint.classList.add('show');
+                setTimeout(() => hint.classList.remove('show'), 1500);
+                return;
+            }
+            meatCount--;
+            updateInventoryUI();
+            hunger = Math.min(maxHunger, hunger + 30);
+            if (playerHP < maxHP) {
+                playerHP++;
+                updateHealthUI();
+            }
+            updateHungerUI();
+            hint.textContent = 'Съели мясо! (+30 голод, +здоровье)';
+            hint.classList.add('show');
+            setTimeout(() => hint.classList.remove('show'), 1500);
+        }
+
+        // ---------- СТРЕЛЬБА ----------
+        let shotCooldown = 0;
+        let audioCtx = null;
+
+        function playShotSound() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const bufferSize = 256;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = (Math.random() * 2 - 1) * (1 - i/bufferSize) * 0.3;
+            }
+            const source = audioCtx.createBufferSource();
+            source.buffer = buffer;
+            const gain = audioCtx.createGain();
+            gain.gain.value = 0.1;
+            source.connect(gain);
+            gain.connect(audioCtx.destination);
+            source.start();
+        }
+
+        function createBloodSplat(position) {
+            const bloodTexture = (() => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+                gradient.addColorStop(0, 'rgba(200,0,0,0.8)');
+                gradient.addColorStop(0.3, 'rgba(150,0,0,0.6)');
+                gradient.addColorStop(1, 'rgba(100,0,0,0)');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, 64, 64);
+                return new THREE.CanvasTexture(canvas);
+            })();
+            const sprite = new THREE.Sprite(
+                new THREE.SpriteMaterial({ map: bloodTexture, transparent: true, depthWrite: false, blending: THREE.NormalBlending })
+            );
+            sprite.position.copy(position);
+            sprite.position.y = 0.02;
+            sprite.scale.set(0.8, 0.8, 1);
+            scene.add(sprite);
+            setTimeout(() => scene.remove(sprite), 5000);
+        }
+
+        function spawnMeat(position, amount = 1) {
+            for (let i=0; i<amount; i++) {
+                const meatMat = new THREE.MeshStandardMaterial({ color: 0xcc3333, roughness: 0.6 });
+                const meat = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, 0.15), meatMat);
+                meat.position.copy(position);
+                meat.position.x += (Math.random()-0.5)*0.3;
+                meat.position.z += (Math.random()-0.5)*0.3;
+                meat.position.y = 0.06;
+                meat.castShadow = true;
+                meat.receiveShadow = true;
+                scene.add(meat);
+                // Автоматический сбор мяса через 5 секунд
+                setTimeout(() => {
+                    if (meat.parent) {
+                        scene.remove(meat);
+                        meatCount++;
+                        updateInventoryUI();
+                        hint.textContent = 'Мясо собрано 🥩';
+                        hint.classList.add('show');
+                        setTimeout(() => hint.classList.remove('show'), 1000);
+                    }
+                }, 5000);
+            }
+        }
+
+        const raycaster = new THREE.Raycaster();
+
+        function performShot() {
+            if (shotCooldown > 0 || gameOver) return;
+            shotCooldown = 0.25;
+            playShotSound();
+            flash.visible = true;
+            setTimeout(() => { flash.visible = false; }, 80);
+            weaponGroup.position.y += 0.03;
+            setTimeout(() => { weaponGroup.position.y = 0; }, 100);
+
+            const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            const origin = camera.position.clone();
+            let hitAnimal = null, minDist = Infinity;
+            aliveAnimals.forEach(animal => {
+                if (animal.userData.dead) return;
+                const center = animal.position.clone();
+                const radius = animal.userData.hitRadius || 0.8;
+                const toCenter = center.clone().sub(origin);
+                const proj = toCenter.dot(dir);
+                if (proj < 0) return;
+                const closestPoint = origin.clone().add(dir.clone().multiplyScalar(proj));
+                const distToCenter = closestPoint.distanceTo(center);
+                if (distToCenter < radius) {
+                    const dist = origin.distanceTo(center);
+                    if (dist < minDist) { minDist = dist; hitAnimal = animal; }
+                }
+            });
+            if (hitAnimal) {
+                const data = hitAnimal.userData;
+                data.hp--;
+                const fill = data.fill;
+                const percent = data.hp / data.maxHp;
+                fill.scale.x = Math.max(0, percent);
+                fill.position.x = -0.28 * (1 - percent);
+                createBloodSplat(hitAnimal.position);
+                data.meshes.forEach(mesh => {
+                    if (mesh.material) {
+                        const orig = mesh.material.color.getHex();
+                        mesh.material.color.setHex(0xff0000);
+                        setTimeout(() => { mesh.material.color.setHex(orig); }, 150);
+                    }
+                });
+                if (data.hp <= 0) {
+                    data.dead = true;
+                    data.meshes.forEach(mesh => { if (mesh.material) mesh.material.color.setHex(0x666666); });
+                    hitAnimal.rotation.x = -Math.PI/2;
+                    hitAnimal.position.y = 0.1;
+                    if (data.hpBar) data.hpBar.visible = false;
+                    killCount++;
+                    killDisplay.textContent = killCount;
+                    // Выпадение мяса
+                    const meatAmount = data.meatDrop || 1;
+                    spawnMeat(hitAnimal.position, meatAmount);
+                    createBloodSplat(hitAnimal.position);
+                    const idx = aliveAnimals.indexOf(hitAnimal);
+                    if (idx !== -1) {
+                        aliveAnimals.splice(idx, 1);
+                        onAnimalDeath(hitAnimal);
+                    }
+                }
+            }
+        }
+
+        // ---------- КОЛЛИЗИЯ ----------
+        function applyCollision() {
+            if (camera.position.y < 1.6) {
+                camera.position.y = 1.6;
+                velocityY = 0;
+                isOnGround = true;
+            }
+            const pos = camera.position;
+            for (const tree of treeColliders) {
+                const dx = pos.x - tree.x, dz = pos.z - tree.z;
+                const dist = Math.sqrt(dx*dx + dz*dz);
+                if (dist < tree.radius + 0.4 && dist > 0.001) {
+                    const pushDir = new THREE.Vector3(dx, 0, dz).normalize();
+                    const overlap = tree.radius + 0.4 - dist;
+                    camera.position.x += pushDir.x * overlap;
+                    camera.position.z += pushDir.z * overlap;
+                }
+            }
+            const worldRadius = 80;
+            const dist = Math.sqrt(pos.x*pos.x + pos.z*pos.z);
+            if (dist > worldRadius) {
+                const ratio = worldRadius / dist;
+                camera.position.x *= ratio;
+                camera.position.z *= ratio;
+            }
+        }
+
+        // ---------- ФИЗИКА ----------
+        let velocityY = 0, isOnGround = true;
+        const gravity = -20, jumpSpeed = 7, walkSpeed = 5.0;
+        let walkTime = 0, clock = new THREE.Clock();
+        let hungerDamageTimer = 0;
+
+        // ---------- ЖИВОТНЫЕ (обновление) ----------
+        function updateAnimals(delta) {
+            aliveAnimals.forEach(animal => {
+                if (animal.userData.dead) return;
+                const data = animal.userData;
+                data.timer += delta;
+                if (data.timer > 2 + Math.random() * 3) {
+                    data.timer = 0;
+                    data.state = 'move';
+                    data.angle = Math.random() * Math.PI*2;
+                }
+                let moving = false;
+                if (data.state === 'move') {
+                    const speed = data.speed * delta;
+                    const x = animal.position.x + Math.cos(data.angle) * speed;
+                    const z = animal.position.z + Math.sin(data.angle) * speed;
+                    const dist = Math.sqrt(x*x + z*z);
+                    if (dist < 80 && !(Math.abs(x) < 22 && Math.abs(z) < 22) && !(Math.abs(x-30) < 5 && Math.abs(z-30) < 5)) {
+                        animal.position.x = x;
+                        animal.position.z = z;
+                        moving = true;
+                    } else {
+                        data.state = 'idle';
+                        data.timer = 0;
+                    }
+                    animal.rotation.y = -data.angle + Math.PI/2;
+                }
+                const legs = data.legGroup.children;
+                if (moving) {
+                    data.walkTime += delta * 10;
+                    const swing = Math.sin(data.walkTime) * 0.3;
+                    legs.forEach((leg, idx) => {
+                        leg.rotation.x = swing * (idx % 2 === 0 ? 1 : -1);
+                    });
+                } else {
+                    legs.forEach(leg => { leg.rotation.x *= 0.9; });
+                }
+                if (data.hpBar && data.hpBar.visible) data.hpBar.lookAt(camera.position);
+
+                if (data.aggressive) {
+                    const distToPlayer = animal.position.distanceTo(camera.position);
+                    if (distToPlayer < 8 && !data.dead) {
+                        const dir = new THREE.Vector3().subVectors(camera.position, animal.position).normalize();
+                        animal.position.add(dir.multiplyScalar(data.speed * delta * 1.5));
+                        animal.rotation.y = Math.atan2(dir.x, dir.z);
+                    }
+                    if (distToPlayer < 1.8 && !data.dead && data.attackCooldown <= 0) {
+                        takeDamage(data.attackDamage || 1);
+                        data.attackCooldown = 2.0;
+                        const dir = new THREE.Vector3().subVectors(camera.position, animal.position).normalize();
+                        camera.position.add(dir.multiplyScalar(0.5));
+                        animal.position.add(dir.clone().multiplyScalar(-0.5));
+                    }
+                    if (data.attackCooldown > 0) data.attackCooldown -= delta;
+                }
+                if (data.type === 'rabbit') {
+                    const distToPlayer = animal.position.distanceTo(camera.position);
+                    if (distToPlayer < 5) {
+                        const dir = new THREE.Vector3().subVectors(animal.position, camera.position).normalize();
+                        animal.position.add(dir.multiplyScalar(data.speed * delta * 2));
+                        animal.rotation.y = Math.atan2(dir.x, dir.z);
+                    }
+                }
+            });
+        }
+
+        // ---------- ЗАПУСК ----------
+        const gameOverDiv = document.getElementById('game-over');
+        const restartBtn = document.getElementById('restartBtn');
+        let showStartScreen = true;
+
+        function drawStartScreen() {
+            const ctx = renderer.domElement.getContext('2d');
+            ctx.save();
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#7cb86c';
+            ctx.font = 'bold 44px Arial';
+            ctx.shadowColor = '#3a6a3a';
+            ctx.shadowBlur = 20;
+            ctx.fillText('🌲 Выживание в лесу', window.innerWidth/2, window.innerHeight/2 - 70);
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = 'white';
+            ctx.font = '20px Arial';
+            ctx.fillText('Собирай ресурсы, охоться, разводи костёр', window.innerWidth/2, window.innerHeight/2);
+            ctx.fillStyle = '#aaa';
+            ctx.font = '16px Arial';
+            ctx.fillText('Кликни в любое место, чтобы начать', window.innerWidth/2, window.innerHeight/2 + 50);
+            ctx.restore();
+        }
+
+        renderer.domElement.addEventListener('click', (event) => {
+            if (showStartScreen) {
+                showStartScreen = false;
+                startGame();
+                return;
+            }
+            // Клик по объектам (сбор по клику)
+            if (gameActive && !gameOver) {
+                const rect = renderer.domElement.getBoundingClientRect();
+                const mouse = new THREE.Vector2();
+                mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+                raycaster.setFromCamera(mouse, camera);
+                // Проверяем клик по дровам и ягодам
+                const woodIntersects = raycaster.intersectObjects(woodObjects);
+                if (woodIntersects.length > 0) {
+                    const w = woodIntersects[0].object;
+                    const idx = woodObjects.indexOf(w);
+                    if (idx !== -1) {
+                        scene.remove(w);
+                        woodObjects.splice(idx, 1);
+                        woodCount++;
+                        updateInventoryUI();
+                        hint.textContent = 'Собрали дрова 🪵';
+                        hint.classList.add('show');
+                        setTimeout(() => hint.classList.remove('show'), 1000);
+                        return;
+                    }
+                }
+                const berryIntersects = raycaster.intersectObjects(berryObjects);
+                if (berryIntersects.length > 0) {
+                    const b = berryIntersects[0].object;
+                    // Находим родительскую группу
+                    let parent = b.parent;
+                    while (parent && !berryObjects.includes(parent)) {
+                        parent = parent.parent;
+                    }
+                    if (parent && berryObjects.includes(parent)) {
+                        const idx = berryObjects.indexOf(parent);
+                        if (idx !== -1) {
+                            scene.remove(parent);
+                            berryObjects.splice(idx, 1);
+                            berryCount++;
+                            updateInventoryUI();
+                            hunger = Math.min(maxHunger, hunger + 10);
+                            updateHungerUI();
+                            hint.textContent = 'Собрали ягоды 🍓 (+10 голод)';
+                            hint.classList.add('show');
+                            setTimeout(() => hint.classList.remove('show'), 1000);
+                            return;
+                        }
+                    }
+                }
+            }
+        });
+
+        // Вращение камеры (зажатая ЛКМ)
+        renderer.domElement.addEventListener('mousedown', (e) => {
+            if (e.button === 0) {
+                isMouseDown = true;
+                prevMouse.x = e.clientX;
+                prevMouse.y = e.clientY;
+            }
+        });
+        window.addEventListener('mouseup', (e) => {
+            if (e.button === 0) isMouseDown = false;
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!isMouseDown || !gameActive || gameOver) return;
+            const dx = e.clientX - prevMouse.x;
+            const dy = e.clientY - prevMouse.y;
+            prevMouse.x = e.clientX;
+            prevMouse.y = e.clientY;
+            const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+            euler.setFromQuaternion(camera.quaternion);
+            euler.y -= dx * 0.005;
+            euler.x -= dy * 0.005;
+            euler.x = Math.max(-Math.PI/2.1, Math.min(Math.PI/2.1, euler.x));
+            camera.quaternion.setFromEuler(euler);
+        });
+
+        restartBtn.addEventListener('click', () => {
+            gameOverDiv.style.display = 'none';
+            gameOver = false;
+            gameActive = true;
+            playerHP = maxHP;
+            hunger = maxHunger;
+            woodCount = 0;
+            fireCount = 0;
+            meatCount = 0;
+            berryCount = 0;
+            killCount = 0;
+            killDisplay.textContent = '0';
+            updateHealthUI();
+            updateHungerUI();
+            updateInventoryUI();
+            // Удалить мясо со сцены
+            scene.children.forEach(child => {
+                if (child.isMesh && child.material && child.material.color.getHex() === 0xcc3333) {
+                    scene.remove(child);
+                }
+            });
+            // Сброс животных
+            aliveAnimals.forEach(a => animalGroup.remove(a));
+            aliveAnimals = [];
+            deadAnimals = [];
+            spawnAnimals();
+            camera.position.set(0, 1.6, 20);
+            camera.quaternion.identity();
+        });
+
+        function startGame() {
+            if (gameActive) return;
+            gameActive = true;
+            gameOver = false;
+            camera.position.set(0, 1.6, 20);
+            camera.quaternion.identity();
+            hint.textContent = 'Собирай ресурсы (E или клик), F – есть мясо, C – костёр';
+            hint.classList.add('show');
+            setTimeout(() => hint.classList.remove('show'), 4000);
+            playNatureSounds();
+            updateHungerUI();
+            updateInventoryUI();
+            console.log('🌲 Выживание в лесу – начато!');
+        }
+
+        function playNatureSounds() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const bufferSize = 4096;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = (Math.random() * 2 - 1) * 0.05;
+            }
+            const source = audioCtx.createBufferSource();
+            source.buffer = buffer;
+            source.loop = true;
+            const gain = audioCtx.createGain();
+            gain.gain.value = 0.08;
+            source.connect(gain);
+            gain.connect(audioCtx.destination);
+            source.start();
+            setInterval(() => {
+                if (Math.random() > 0.7) return;
+                const osc = audioCtx.createOscillator();
+                const gain2 = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = 1000 + Math.random() * 2000;
+                gain2.gain.value = 0.02;
+                osc.connect(gain2);
+                gain2.connect(audioCtx.destination);
+                osc.start();
+                setTimeout(() => osc.stop(), 50 + Math.random() * 100);
+            }, 3000);
+        }
+
+        // ---------- ГЛАВНЫЙ ЦИКЛ ----------
+        function animate() {
+            const delta = Math.min(clock.getDelta(), 0.05);
+            if (gameActive && !gameOver) {
+                // Движение
+                const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                forward.y = 0; forward.normalize();
+                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+                right.y = 0; right.normalize();
+                let moveX = 0, moveZ = 0;
+                if (keys['KeyW']) moveZ -= 1;
+                if (keys['KeyS']) moveZ += 1;
+                if (keys['KeyA']) moveX -= 1;
+                if (keys['KeyD']) moveX += 1;
+                const moveVec = new THREE.Vector3();
+                if (moveX !== 0 || moveZ !== 0) {
+                    moveVec.addScaledVector(forward, -moveZ);
+                    moveVec.addScaledVector(right, moveX);
+                    moveVec.normalize().multiplyScalar(walkSpeed * delta);
+                }
+                camera.position.x += moveVec.x;
+                camera.position.z += moveVec.z;
+                // Прыжок
+                if (keys['Space'] && isOnGround) {
+                    velocityY = jumpSpeed;
+                    isOnGround = false;
+                }
+                velocityY += gravity * delta;
+                camera.position.y += velocityY * delta;
+                applyCollision();
+                // Обновление
+                updateAnimals(delta);
+                // Голод
+                hunger -= 0.4 * delta;
+                if (hunger < 0) hunger = 0;
+                updateHungerUI();
+                if (hunger === 0) {
+                    hungerDamageTimer += delta;
+                    if (hungerDamageTimer >= 3) {
+                        hungerDamageTimer = 0;
+                        takeDamage(1);
+                    }
+                } else {
+                    hungerDamageTimer = 0;
+                }
+                if (shotCooldown > 0) shotCooldown -= delta;
+                // Подсказка у двери (декоративно)
+                const doorPos = new THREE.Vector3(30, 0.9, 32.5);
+                if (camera.position.distanceTo(doorPos) < 2.0) {
+                    hint.textContent = 'Дом 🏠 (пока только декорация)';
+                    hint.classList.add('show');
+                } else if (!hint.textContent.includes('Собирай')) {
+                    hint.classList.remove('show');
+                }
+                // Анимация автомата
+                const isMoving = (moveX !== 0 || moveZ !== 0) && isOnGround;
+                if (isMoving) {
+                    walkTime += delta * 10;
+                    weaponGroup.position.y = Math.sin(walkTime) * 0.01;
+                    weaponGroup.position.x = Math.sin(walkTime * 0.8) * 0.005;
+                } else {
+                    weaponGroup.position.y += (0 - weaponGroup.position.y) * 0.08;
+                    weaponGroup.position.x += (0 - weaponGroup.position.x) * 0.08;
+                }
+            }
+            // Рыбки
+            fishes.forEach(fish => {
+                const data = fish.userData;
+                data.angle += delta * data.speed;
+                const r = data.radius;
+                const x = Math.cos(data.angle) * r;
+                const z = Math.sin(data.angle) * r;
+                const y = -0.2 + Math.sin(data.angle * 0.8 + data.phase) * 0.3;
+                fish.position.set(x, y, z);
+                fish.rotation.y = -data.angle + Math.PI/2;
+                fish.rotation.z = Math.sin(data.angle * 2 + data.phase) * 0.1;
+            });
+            renderer.render(scene, camera);
+            if (showStartScreen) drawStartScreen();
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        console.log('🌲 Выживание в лесу – клик по экрану для старта!');
+    </script>
+</body>
+</html>
